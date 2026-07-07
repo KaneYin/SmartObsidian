@@ -56,21 +56,30 @@ def _split_frontmatter(raw: str) -> tuple[dict, str]:
 
 
 def parse_note(path: Path) -> Note:
-    raw = path.read_text(encoding="utf-8")
+    # errors="replace": one non-UTF-8 note must not abort indexing the vault.
+    raw = path.read_text(encoding="utf-8", errors="replace")
     fm, body = _split_frontmatter(raw)
 
     tags: list[str] = []
-    for t in fm.get("tags", []) if isinstance(fm.get("tags"), list) else []:
-        tags.append(t)
+    fm_tags = fm.get("tags")
+    if isinstance(fm_tags, list):
+        tags.extend(fm_tags)
+    elif isinstance(fm_tags, str) and fm_tags:
+        tags.append(fm_tags)
     for m in INLINE_TAG_RE.finditer(body):
         tags.append(m.group(1))
 
     wikilinks = [m.group(1).strip() for m in WIKILINK_RE.finditer(body)]
 
+    # Take the first real heading as the title, ignoring `#` lines inside
+    # fenced code blocks (shell comments, etc.).
     title = path.stem
+    in_fence = False
     for line in body.splitlines():
-        h = HEADING_RE.match(line)
-        if h:
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and (h := HEADING_RE.match(line)):
             title = h.group(2).strip()
             break
 
@@ -101,6 +110,7 @@ def chunk_note(note: Note) -> list[Chunk]:
     heading = note.title
     buf: list[str] = []
     ordinal = 0
+    in_fence = False
 
     def flush():
         nonlocal ordinal, buf
@@ -111,7 +121,11 @@ def chunk_note(note: Note) -> list[Chunk]:
         buf = []
 
     for line in note.body.splitlines():
-        h = HEADING_RE.match(line)
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            buf.append(line)
+            continue
+        h = None if in_fence else HEADING_RE.match(line)
         if h:
             flush()
             heading = h.group(2).strip()

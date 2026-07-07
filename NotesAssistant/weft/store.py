@@ -35,8 +35,14 @@ class VectorStore:
         self._metadata.append(metadata)
 
     def add_batch(self, vectors: np.ndarray, metadatas: list[dict]) -> None:
-        for vec, meta in zip(vectors, metadatas):
-            self.add(vec, meta)
+        if not metadatas:
+            return
+        v = np.asarray(vectors, dtype=np.float32).reshape(len(metadatas), self.dim)
+        norms = np.linalg.norm(v, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        v = v / norms
+        self._vectors = np.vstack([self._vectors, v]) if len(self) else v
+        self._metadata.extend(metadatas)
 
     def search(self, query: np.ndarray, k: int = 5) -> list[SearchHit]:
         if len(self) == 0:
