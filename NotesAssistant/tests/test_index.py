@@ -5,11 +5,11 @@ from weft.store import VectorStore
 
 def test_build_index_populates_and_persists(sample_vault, tmp_path):
     store_path = tmp_path / "weft_index"
-    n = build_index(sample_vault, FakeEmbedder(dim=16), store_path)
-    assert n > 0  # number of chunks indexed
+    n_chunks, n_edges = build_index(sample_vault, FakeEmbedder(dim=16), store_path)
+    assert n_chunks > 0
 
     store = VectorStore.load(store_path)
-    assert len(store) == n
+    assert len(store) == n_chunks
     rel_paths = {m["rel_path"] for m in store._metadata}
     assert {"coffee.md", "water.md", "notes/tea.md"} <= rel_paths
     # every chunk carries the fields the agent needs to cite

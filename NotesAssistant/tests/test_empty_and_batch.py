@@ -10,8 +10,9 @@ from weft.store import VectorStore
 def test_build_index_empty_vault_writes_loadable_store(tmp_path):
     vault = tmp_path / "empty"
     vault.mkdir()
-    n = build_index(vault, FakeEmbedder(dim=16), tmp_path / "idx")
-    assert n == 0
+    n_chunks, n_edges = build_index(vault, FakeEmbedder(dim=16), tmp_path / "idx")
+    assert n_chunks == 0
+    assert n_edges == 0
     store = VectorStore.load(tmp_path / "idx")
     assert len(store) == 0
     assert store.search(np.zeros(16), k=3) == []

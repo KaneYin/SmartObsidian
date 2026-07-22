@@ -11,6 +11,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from weft.embeddings import Embedder
+from weft.graph import LinkGraph
 from weft.llm import LLMClient
 from weft.store import SearchHit, VectorStore
 
@@ -39,6 +40,49 @@ def retrieve(question: str, embedder: Embedder, store: VectorStore, k: int = 5) 
     return store.search(query_vec, k=k)
 
 
+def graph_aware_retrieve(
+    question: str,
+    embedder: Embedder,
+    store: VectorStore,
+    graph: LinkGraph,
+    k: int = 5,
+    neighbor_budget: int = 5,
+) -> list[SearchHit]:
+    """Vector top-k as seeds, then the single best-scoring chunk from each
+    1-hop neighbor note (diversified, budgeted). Base top-k is always kept and
+    stays first; expansion chunks follow in score order."""
+    query_vec = embedder.embed([question])[0]
+    # Full score-desc scan of the store: cheap at M0/M1 scale and needed to pick
+    # the single best chunk per neighbor note below. Revisit if vaults grow large.
+    scored = store.search(query_vec, k=len(store))  # every chunk, score-desc
+    base = scored[:k]
+
+    def key(h: SearchHit) -> tuple[str, int]:
+        return (h.metadata["rel_path"], h.metadata["ordinal"])
+
+    base_keys = {key(h) for h in base}
+    seed_notes = {h.metadata["rel_path"] for h in base}
+
+    neighbor_notes: set[str] = set()
+    for note in seed_notes:
+        neighbor_notes |= graph.neighbors(note)
+    neighbor_notes -= seed_notes
+
+    expansion: list[SearchHit] = []
+    used_notes: set[str] = set()
+    for h in scored:  # already score-desc, so first hit per note is its best
+        if len(expansion) >= neighbor_budget:
+            break
+        rp = h.metadata["rel_path"]
+        # `key(h) not in base_keys` is defensive: neighbor_notes already excludes
+        # seed notes, so a base chunk can't reach here — kept to make the dedup explicit.
+        if rp in neighbor_notes and rp not in used_notes and key(h) not in base_keys:
+            expansion.append(h)
+            used_notes.add(rp)
+
+    return base + expansion
+
+
 def build_prompt(question: str, hits: list[SearchHit]) -> str:
     lines = ["Sources:"]
     for i, h in enumerate(hits, start=1):
@@ -56,12 +100,17 @@ def reason(question: str, hits: list[SearchHit], llm: LLMClient) -> str:
     return llm.complete(system=SYSTEM, prompt=build_prompt(question, hits))
 
 
-def build_graph(embedder: Embedder, store: VectorStore, llm: LLMClient):
-    """Compile the retrieve -> reason graph. State carries question/k in,
-    answer/hits out. Dependencies are captured in the node closures."""
+def build_graph(embedder: Embedder, store: VectorStore, llm: LLMClient, link_graph: LinkGraph | None = None):
+    """Compile the retrieve -> reason graph. When link_graph is provided, the
+    retrieve node uses graph-aware retrieval; otherwise pure vector."""
 
     def _retrieve(state: AgentState) -> AgentState:
-        hits = retrieve(state["question"], embedder, store, k=state.get("k", 5))
+        if link_graph is not None:
+            hits = graph_aware_retrieve(
+                state["question"], embedder, store, link_graph, k=state.get("k", 5)
+            )
+        else:
+            hits = retrieve(state["question"], embedder, store, k=state.get("k", 5))
         return {"hits": hits}
 
     def _reason(state: AgentState) -> AgentState:
@@ -76,8 +125,15 @@ def build_graph(embedder: Embedder, store: VectorStore, llm: LLMClient):
     return graph.compile()
 
 
-def ask(question: str, embedder: Embedder, store: VectorStore, llm: LLMClient, k: int = 5) -> AskResult:
-    app = build_graph(embedder, store, llm)
+def ask(
+    question: str,
+    embedder: Embedder,
+    store: VectorStore,
+    llm: LLMClient,
+    k: int = 5,
+    graph: LinkGraph | None = None,
+) -> AskResult:
+    app = build_graph(embedder, store, llm, link_graph=graph)
     final = app.invoke({"question": question, "k": k})
     hits = final.get("hits", [])
     sources: list[str] = []

@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 from weft.embeddings import Embedder, SentenceTransformerEmbedder
-from weft.index import build_index
+from weft.graph import LinkGraph
+from weft.index import build_index, graph_path_for
 from weft.llm import ClaudeClient, LLMClient
 from weft.store import VectorStore
 
@@ -26,8 +27,8 @@ def make_llm() -> LLMClient:
 
 
 def _cmd_index(args: argparse.Namespace) -> int:
-    n = build_index(Path(args.vault), make_embedder(), Path(args.store))
-    print(f"Indexed {n} chunks from {args.vault} -> {args.store}")
+    n_chunks, n_edges = build_index(Path(args.vault), make_embedder(), Path(args.store))
+    print(f"Indexed {n_chunks} chunks and {n_edges} link edges from {args.vault} -> {args.store}")
     return 0
 
 
@@ -40,7 +41,14 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         return 1
 
     store = VectorStore.load(store_path)
-    result = ask(args.question, make_embedder(), store, make_llm(), k=args.k)
+
+    link_graph = None
+    if not args.no_graph:
+        gpath = graph_path_for(store_path)
+        if gpath.exists():
+            link_graph = LinkGraph.load(gpath)
+
+    result = ask(args.question, make_embedder(), store, make_llm(), k=args.k, graph=link_graph)
 
     print(result.answer)
     if result.sources:
@@ -63,6 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_ask.add_argument("question", help="Your question, in quotes.")
     p_ask.add_argument("--store", default=DEFAULT_STORE, help="Index path (default: .weft/index).")
     p_ask.add_argument("--k", type=int, default=5, help="Number of chunks to retrieve.")
+    p_ask.add_argument(
+        "--no-graph",
+        action="store_true",
+        help="Disable graph-aware retrieval; use pure vector search (for A/B comparison).",
+    )
     p_ask.set_defaults(func=_cmd_ask)
 
     return parser

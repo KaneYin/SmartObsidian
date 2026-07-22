@@ -1,19 +1,27 @@
-"""Build the vector index from a vault: parse -> chunk -> embed -> store -> save."""
+"""Build the vector index AND the link graph from a vault:
+parse -> chunk -> embed -> store; parse -> resolve links -> graph. Both persist
+beside each other so a single `weft index` writes .npz/.json/.graph.json."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from weft.embeddings import Embedder
+from weft.graph import LinkGraph
 from weft.parser import chunk_note, parse_vault
 from weft.store import VectorStore
 
 
-def build_index(vault_path: Path, embedder: Embedder, store_path: Path) -> int:
-    """Index every chunk of every note. Returns the number of chunks indexed."""
+def graph_path_for(store_path: Path) -> Path:
+    """The graph file sits next to the vector index: `.weft/index` ->
+    `.weft/index.graph.json`."""
+    return Path(str(store_path) + ".graph.json")
+
+
+def build_index(vault_path: Path, embedder: Embedder, store_path: Path) -> tuple[int, int]:
+    """Index every chunk and build the link graph.
+    Returns (n_chunks, n_edges)."""
     notes = parse_vault(Path(vault_path))
-    # Keep each chunk paired with its note so note-level tags/wikilinks (the
-    # seed of the M1 link graph) land in the chunk metadata.
     pairs = [(note, c) for note in notes for c in chunk_note(note)]
 
     store = VectorStore(dim=embedder.dim)
@@ -31,8 +39,9 @@ def build_index(vault_path: Path, embedder: Embedder, store_path: Path) -> int:
             for note, c in pairs
         ]
         store.add_batch(vectors, metadatas)
-
-    chunks = pairs
-
     store.save(Path(store_path))
-    return len(chunks)
+
+    graph = LinkGraph.from_notes(notes)
+    graph.save(graph_path_for(store_path))
+
+    return len(pairs), graph.edge_count()
