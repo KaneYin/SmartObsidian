@@ -23,6 +23,14 @@ def test_parse_vault_finds_all_markdown_recursively(sample_vault):
     assert rel == ["coffee.md", "notes/tea.md", "water.md"]
 
 
+def test_parse_vault_excludes_generated_inbox(sample_vault):
+    # The suggest command writes _inbox.md into the vault; it must never
+    # round-trip back into the index (else it self-suggests on re-index).
+    (sample_vault / "_inbox.md").write_text("# Weft Inbox\n\n- [[coffee]]\n")
+    rel = {n.rel_path for n in parse_vault(sample_vault)}
+    assert "_inbox.md" not in rel
+
+
 def test_chunk_note_splits_by_heading_and_carries_source(sample_vault):
     note = parse_note(sample_vault / "coffee.md")
     chunks = chunk_note(note)

@@ -36,3 +36,32 @@ def test_save_and_load_roundtrip(tmp_path):
 def test_search_empty_store_returns_empty():
     store = VectorStore(dim=3)
     assert store.search(np.array([1.0, 0.0, 0.0]), k=3) == []
+
+
+def test_vectors_by_note_groups_chunk_vectors_per_note():
+    store = VectorStore(dim=3)
+    store.add(np.array([1.0, 0.0, 0.0]), {"rel_path": "a.md", "text": "a1"})
+    store.add(np.array([0.0, 1.0, 0.0]), {"rel_path": "a.md", "text": "a2"})
+    store.add(np.array([0.0, 0.0, 1.0]), {"rel_path": "b.md", "text": "b1"})
+
+    grouped = store.vectors_by_note()
+
+    assert set(grouped) == {"a.md", "b.md"}
+    assert grouped["a.md"].shape == (2, 3)
+    assert grouped["b.md"].shape == (1, 3)
+
+
+def test_metadata_by_note_groups_chunk_metadata_in_order():
+    store = VectorStore(dim=3)
+    store.add(np.array([1.0, 0.0, 0.0]), {"rel_path": "a.md", "text": "a1", "tags": ["t"]})
+    store.add(np.array([0.0, 1.0, 0.0]), {"rel_path": "a.md", "text": "a2", "tags": ["t"]})
+
+    grouped = store.metadata_by_note()
+
+    assert list(grouped) == ["a.md"]
+    assert [m["text"] for m in grouped["a.md"]] == ["a1", "a2"]
+
+
+def test_vectors_by_note_empty_store():
+    store = VectorStore(dim=3)
+    assert store.vectors_by_note() == {}

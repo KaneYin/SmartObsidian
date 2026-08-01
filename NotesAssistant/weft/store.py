@@ -56,6 +56,23 @@ class VectorStore:
         top = np.argsort(-scores)[:k]
         return [SearchHit(score=float(scores[i]), metadata=self._metadata[i]) for i in top]
 
+    def vectors_by_note(self) -> dict[str, np.ndarray]:
+        """Chunk vectors grouped by note `rel_path`, each an (n_chunks, dim)
+        array. Lets callers (e.g. suggest.note_vectors) mean-pool per note
+        without reaching into the store's internal arrays."""
+        grouped: dict[str, list[np.ndarray]] = {}
+        for vec, meta in zip(self._vectors, self._metadata):
+            grouped.setdefault(meta["rel_path"], []).append(vec)
+        return {rp: np.vstack(vecs) for rp, vecs in grouped.items()}
+
+    def metadata_by_note(self) -> dict[str, list[dict]]:
+        """Chunk metadata grouped by note `rel_path`, preserving insertion
+        order so callers can read tags/headings/text per note."""
+        grouped: dict[str, list[dict]] = {}
+        for meta in self._metadata:
+            grouped.setdefault(meta["rel_path"], []).append(meta)
+        return grouped
+
     def save(self, path: Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

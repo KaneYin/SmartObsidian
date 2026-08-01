@@ -93,10 +93,17 @@ def parse_note(path: Path) -> Note:
     )
 
 
+# Weft-generated files that live in the vault but must never be indexed
+# (else `_inbox.md` self-suggests on the next `weft index`).
+GENERATED_NOTES = {"_inbox.md"}
+
+
 def parse_vault(vault_path: Path) -> list[Note]:
     vault_path = Path(vault_path)
     notes: list[Note] = []
     for md in sorted(vault_path.rglob("*.md")):
+        if md.name in GENERATED_NOTES:
+            continue
         note = parse_note(md)
         note.rel_path = md.relative_to(vault_path).as_posix()
         notes.append(note)
