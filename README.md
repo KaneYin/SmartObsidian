@@ -1,24 +1,122 @@
 # Weft
 
-Local-first agent over an Obsidian markdown vault: local embeddings for
-retrieval, Claude for reasoning. M0 MVP.
+Weft is a local-first assistant over an Obsidian Markdown vault. It parses and
+chunks notes locally, creates sentence-transformer embeddings, combines vector
+retrieval with the explicit `[[wikilink]]` graph, and asks Claude to answer with
+source citations. It can also propose missing links in a review-only inbox.
+
+Implemented milestones:
+
+- M0: local indexing and retrieval-augmented questions;
+- M1: one-hop graph-aware retrieval, with `--no-graph` for comparison;
+- M2: local inferred-link suggestions, an append-only proposal ledger, and an
+  optional payload-logged Claude rationale.
+
+The background daemon, accept/reject workflow, automatic note edits, scheduling,
+and local LLM backend remain future work.
 
 ## Setup
 
-    uv sync --extra dev
+```bash
+uv sync --extra dev
+```
 
-Set your key for real answers (retrieval + indexing need no key):
+Set the API key used by `weft ask` and optional suggestion rationales:
 
-    export ANTHROPIC_API_KEY=sk-ant-...
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
 
-## Use
+If the key is stored in `.env`, protect it before sourcing it:
 
-    uv run weft index /path/to/your/Vault
-    uv run weft ask "what did I decide about X?"
+```bash
+chmod 600 .env
+set -a
+source .env
+set +a
+```
 
-The `ask` command retrieves the most relevant note chunks locally and sends
-only those to Claude, which answers citing the source files.
+## Index with a privacy policy
+
+```bash
+uv run weft index "/path/to/your/Vault"
+```
+
+Secure defaults exclude `Private/`, `.obsidian/`, `.trash/`, and `.weft/` before
+any file is read or embedded. Vault symlinks are rejected rather than followed.
+
+Privacy options are repeatable:
+
+```bash
+uv run weft index "/path/to/Vault" \
+  --include Projects \
+  --exclude Projects/Client-A \
+  --redact 'sk-ant-[A-Za-z0-9_-]+'
+```
+
+- `--include PATH` creates an allowlist of relative Vault paths.
+- `--exclude PATH` adds a relative path to the default exclusions.
+- `--redact REGEX` replaces matches with `[REDACTED]` before parsing,
+  embedding, or persistence.
+- `--include-private` is an explicit opt-in that removes the default `Private/`
+  exclusion. Retrieved Private content may then be sent to Claude.
+
+Re-index after changing the privacy policy. The effective policy and canonical
+Vault path are stored in the private `index.manifest.json` sidecar.
+
+## Ask
+
+```bash
+uv run weft ask "What did I decide about X?"
+uv run weft ask "What are my priorities?" --k 8
+uv run weft ask "What are my priorities?" --no-graph
+```
+
+`--k` accepts 1 through 50. Only retrieved, already-filtered chunks are sent to
+Claude. The exact outbound system prompt and payload are appended to
+`.weft/api-log.jsonl` with mode `0600`; treat that audit log as sensitive.
+
+## Suggest links
+
+```bash
+uv run weft suggest "/path/to/your/Vault"
+uv run weft suggest "/path/to/your/Vault" --rationale
+```
+
+Suggestions are generated locally unless `--rationale` is used. The command:
+
+- verifies that the index was built from the same canonical Vault;
+- leaves an existing `_inbox.md` unchanged by default;
+- leaves the inbox unchanged when there are no new suggestions;
+- never follows an `_inbox.md` symlink;
+- requires `--overwrite-inbox` to replace an existing regular inbox.
+
+Review or move the existing inbox before another run whenever possible. The
+checkboxes are still display-only; accept/reject state is planned for M3.
+
+## Local artifacts
+
+The default `.weft/` directory contains:
+
+```text
+.weft/index.npz
+.weft/index.json
+.weft/index.graph.json
+.weft/index.manifest.json
+.weft/suggestions.jsonl
+.weft/api-log.jsonl
+```
+
+The JSON index contains redacted note text and the API log contains exact remote
+payloads. Weft creates or refreshes these files as `0600` and `.weft/` as `0700`.
+They are ignored by Git, but filesystem permissions and backups still matter.
 
 ## Test
 
-    uv run pytest
+```bash
+UV_CACHE_DIR=/tmp/weft-uv-cache uv run --extra dev pytest
+```
+
+See [the August 2026 security hardening record](docs/security/2026-08-08-security-hardening.md)
+for the threat model, root causes, behavior changes, dependency advisories, and
+remaining limitations.

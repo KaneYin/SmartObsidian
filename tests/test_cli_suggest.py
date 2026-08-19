@@ -51,6 +51,7 @@ def test_suggest_second_run_proposes_nothing_new(
     capsys.readouterr()
 
     cli.main(["suggest", str(linkable_vault), "--store", str(store)])
+    inbox_after_first = (linkable_vault / "_inbox.md").read_text(encoding="utf-8")
     ledger = store.parent / "suggestions.jsonl"
     lines_after_first = ledger.read_text(encoding="utf-8").count("\n")
     capsys.readouterr()
@@ -59,6 +60,7 @@ def test_suggest_second_run_proposes_nothing_new(
     assert rc == 0
     out = capsys.readouterr().out
     assert "0 suggestions" in out
+    assert (linkable_vault / "_inbox.md").read_text(encoding="utf-8") == inbox_after_first
     # ledger unchanged: the already-proposed pair is not recorded again
     assert ledger.read_text(encoding="utf-8").count("\n") == lines_after_first
 
@@ -100,7 +102,12 @@ def test_reindex_after_suggest_ignores_generated_inbox(
     (store.parent / "suggestions.jsonl").unlink()
     capsys.readouterr()
 
-    cli.main(["suggest", str(linkable_vault), "--store", str(store)])
+    cli.main(
+        [
+            "suggest", str(linkable_vault), "--store", str(store),
+            "--overwrite-inbox",
+        ]
+    )
     body = (linkable_vault / "_inbox.md").read_text(encoding="utf-8")
     assert "_inbox.md" not in body  # never self-suggests
 
@@ -110,13 +117,13 @@ def test_suggest_empty_state_leaves_ledger_untouched(
 ):
     store = tmp_path / "idx"
     _index(linkable_vault, store, monkeypatch)
-    # threshold above any real cosine -> no qualifying pairs
+    # A zero attention budget produces no suggestions and must not touch inbox.
     rc = cli.main(
-        ["suggest", str(linkable_vault), "--store", str(store), "--threshold", "1.5"]
+        ["suggest", str(linkable_vault), "--store", str(store), "--limit", "0"]
     )
     assert rc == 0
     assert "0 suggestions" in capsys.readouterr().out
-    assert (linkable_vault / "_inbox.md").exists()  # empty-state inbox still written
+    assert not (linkable_vault / "_inbox.md").exists()
     assert not (store.parent / "suggestions.jsonl").exists()  # ledger untouched
 
 
@@ -124,3 +131,35 @@ def test_suggest_no_index_errors(tmp_path, capsys):
     rc = cli.main(["suggest", str(tmp_path), "--store", str(tmp_path / "missing")])
     assert rc == 1
     assert "No index" in capsys.readouterr().err
+
+
+def test_suggest_preserves_existing_inbox_and_does_not_record(
+    linkable_vault, tmp_path, monkeypatch, capsys
+):
+    store = tmp_path / "idx"
+    _index(linkable_vault, store, monkeypatch)
+    existing = linkable_vault / "_inbox.md"
+    existing.write_text("unchecked user review")
+    capsys.readouterr()
+
+    rc = cli.main(["suggest", str(linkable_vault), "--store", str(store)])
+
+    assert rc == 1
+    assert "already exists" in capsys.readouterr().err
+    assert existing.read_text() == "unchecked user review"
+    assert not (store.parent / "suggestions.jsonl").exists()
+
+
+def test_suggest_rejects_index_bound_to_another_vault(
+    linkable_vault, tmp_path, monkeypatch, capsys
+):
+    store = tmp_path / "idx"
+    _index(linkable_vault, store, monkeypatch)
+    other_vault = tmp_path / "other"
+    other_vault.mkdir()
+    capsys.readouterr()
+
+    rc = cli.main(["suggest", str(other_vault), "--store", str(store)])
+
+    assert rc == 1
+    assert "different vault" in capsys.readouterr().err

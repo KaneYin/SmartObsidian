@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from weft.store import VectorStore, SearchHit
 
@@ -20,6 +21,13 @@ def test_search_k_caps_at_store_size():
     assert len(hits) == 1
 
 
+def test_search_rejects_non_positive_k():
+    store = VectorStore(dim=3)
+    store.add(np.array([1.0, 0.0, 0.0]), {"rel_path": "a.md"})
+    with pytest.raises(ValueError, match="greater than zero"):
+        store.search(np.array([1.0, 0.0, 0.0]), k=-1)
+
+
 def test_save_and_load_roundtrip(tmp_path):
     store = VectorStore(dim=3)
     store.add(np.array([1.0, 0.0, 0.0]), {"rel_path": "a.md", "heading": "A", "text": "alpha"})
@@ -31,6 +39,8 @@ def test_save_and_load_roundtrip(tmp_path):
     assert len(loaded) == 1
     hits = loaded.search(np.array([1.0, 0.0, 0.0]), k=1)
     assert hits[0].metadata["text"] == "alpha"
+    assert (path.with_suffix(".npz").stat().st_mode & 0o777) == 0o600
+    assert (path.with_suffix(".json").stat().st_mode & 0o777) == 0o600
 
 
 def test_search_empty_store_returns_empty():

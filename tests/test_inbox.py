@@ -1,4 +1,7 @@
 from datetime import datetime
+import os
+
+import pytest
 
 from weft.inbox import render_inbox, write_inbox
 from weft.suggest import LinkSuggestion
@@ -43,6 +46,23 @@ def test_render_is_deterministic_and_ordered():
     assert render_inbox(suggs, GEN) == text  # deterministic
 
 
+def test_render_escapes_untrusted_markdown_and_uses_qualified_link_path():
+    text = render_inbox(
+        [
+            _sugg(
+                "folder/evil[link].md",
+                "other/note`name.md",
+                rationale="<script>*not formatting*</script>\nsecond line",
+            )
+        ],
+        GEN,
+    )
+
+    assert r"evil\[link\].md" in text
+    assert r"\<script\>\*not formatting\*\</script\> second line" in text
+    assert "[[other/note`name]]" in text
+
+
 def test_render_empty_state():
     text = render_inbox([], GEN)
     assert "# Weft Inbox" in text
@@ -55,3 +75,32 @@ def test_write_inbox_writes_file_and_returns_path(tmp_path):
     path = write_inbox(tmp_path, "hello inbox")
     assert path == tmp_path / "_inbox.md"
     assert path.read_text(encoding="utf-8") == "hello inbox"
+    assert (path.stat().st_mode & 0o777) == 0o600
+
+
+def test_write_inbox_refuses_existing_file_without_explicit_overwrite(tmp_path):
+    path = tmp_path / "_inbox.md"
+    path.write_text("keep me")
+    with pytest.raises(FileExistsError):
+        write_inbox(tmp_path, "replacement")
+    assert path.read_text() == "keep me"
+
+
+def test_write_inbox_explicitly_overwrites_regular_file(tmp_path):
+    path = tmp_path / "_inbox.md"
+    path.write_text("old")
+    write_inbox(tmp_path, "new", overwrite=True)
+    assert path.read_text() == "new"
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks unavailable")
+def test_write_inbox_never_follows_symlink(tmp_path):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    target = tmp_path / "outside.md"
+    target.write_text("do not replace")
+    (vault / "_inbox.md").symlink_to(target)
+
+    with pytest.raises(ValueError, match="symlink"):
+        write_inbox(vault, "malicious replacement", overwrite=True)
+    assert target.read_text() == "do not replace"

@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weft.security import UnsafeWriteError, secure_append_json
 from weft.suggest import LinkSuggestion
 
 
@@ -23,6 +24,8 @@ def load_seen(path: Path) -> set[tuple[str, str]]:
     path = Path(path)
     if not path.exists():
         return set()
+    if path.is_symlink():
+        raise UnsafeWriteError(f"Refusing to read suggestion ledger symlink: {path}")
     seen: set[tuple[str, str]] = set()
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -40,27 +43,24 @@ def record(path: Path, suggestions: list[LinkSuggestion]) -> None:
     seen = load_seen(path)
     now = datetime.now(timezone.utc).isoformat()
 
-    new_lines: list[str] = []
+    new_records: list[dict] = []
     for s in suggestions:
         pair = _canonical(s.note_a, s.note_b)
         if pair in seen:
             continue
         seen.add(pair)
-        new_lines.append(
-            json.dumps(
-                {
-                    "id": s.id,
-                    "a": pair[0],
-                    "b": pair[1],
-                    "score": s.score,
-                    "status": "proposed",
-                    "first_seen": now,
-                }
-            )
+        new_records.append(
+            {
+                "id": s.id,
+                "a": pair[0],
+                "b": pair[1],
+                "score": s.score,
+                "status": "proposed",
+                "first_seen": now,
+            }
         )
 
-    if not new_lines:
+    if not new_records:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write("\n".join(new_lines) + "\n")
+    for rec in new_records:
+        secure_append_json(path, rec)

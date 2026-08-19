@@ -27,3 +27,9 @@ packages = ["src/weft"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+
+[tool.uv]
+constraint-dependencies = [
+    "setuptools>=83.0.0",
+    "torch>=2.13.0",
+]

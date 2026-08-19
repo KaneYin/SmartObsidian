@@ -1,6 +1,7 @@
 import numpy as np
 
-from weft.agent import ask
+from weft.agent import ask, graph_aware_retrieve
+from weft.graph import LinkGraph
 from weft.embeddings import FakeEmbedder
 from weft.index import build_index
 from weft.llm import FakeLLM
@@ -26,6 +27,13 @@ def test_ask_on_empty_store_reports_nothing_found(tmp_path):
     result = ask("anything?", FakeEmbedder(dim=16), store, FakeLLM(response="unused"), k=3)
     assert "couldn't find" in result.answer.lower()
     assert result.sources == []
+
+
+def test_graph_retrieval_on_empty_store_returns_no_hits():
+    store = VectorStore(dim=16)
+    assert graph_aware_retrieve(
+        "anything?", FakeEmbedder(dim=16), store, LinkGraph(), k=3
+    ) == []
 
 
 def test_add_batch_matches_repeated_add_and_is_unit_norm():

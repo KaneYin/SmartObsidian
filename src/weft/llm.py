@@ -1,9 +1,12 @@
-"""LLM backends. ClaudeClient wraps the Anthropic SDK (model claude-opus-4-8,
-adaptive thinking). FakeLLM is a no-network stub that records what it was asked."""
+"""LLM backends plus the exact-payload audit wrapper used by the CLI."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+from weft.security import secure_append_json
 
 MODEL = "claude-opus-4-8"
 
@@ -30,6 +33,27 @@ class FakeLLM:
         if self._response is not None:
             return self._response
         return f"[echo] {prompt}"
+
+
+class AuditedLLM:
+    """Log the exact outbound payload before delegating to an LLM backend."""
+
+    def __init__(self, delegate: LLMClient, log_path: Path, purpose: str):
+        self._delegate = delegate
+        self._log_path = Path(log_path)
+        self._purpose = purpose
+
+    def complete(self, system: str, prompt: str) -> str:
+        secure_append_json(
+            self._log_path,
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "purpose": self._purpose,
+                "system": system,
+                "prompt": prompt,
+            },
+        )
+        return self._delegate.complete(system=system, prompt=prompt)
 
 
 class ClaudeClient:

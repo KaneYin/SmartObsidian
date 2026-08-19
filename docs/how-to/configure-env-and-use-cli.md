@@ -1,72 +1,42 @@
-# Configure Weft and Use the MVP from the CLI
+# Configure Weft and Use the CLI Safely
 
-Weft is a local-first assistant for an Obsidian Markdown vault. It builds the
-search index on your machine, retrieves relevant note chunks locally, and sends
-only the retrieved context to Claude when you ask a question.
-
-This tutorial covers how to:
-
-1. Install the project dependencies.
-2. Configure the Anthropic API key in a `.env` file.
-3. Load that configuration into your shell.
-4. Index an Obsidian vault.
-5. Ask questions through the CLI.
+Weft indexes an Obsidian Markdown Vault locally, retrieves allowed note chunks,
+and sends only selected context to Claude for an answer. This guide covers the
+current M0–M2 commands and their security behavior.
 
 ## Prerequisites
 
-You need:
+You need Python 3.11 or newer, `uv`, an Obsidian Vault, and an Anthropic API key
+for `ask` or `suggest --rationale`.
 
-- Python 3.11 or newer;
-- [`uv`](https://docs.astral.sh/uv/);
-- an Obsidian vault containing Markdown files; and
-- an Anthropic API key for the `ask` command.
-
-Open a terminal and move into the Weft project directory:
+From the current repository root:
 
 ```bash
-cd /Users/kane/Dev/AgentDevelopment/NotesAssistant
-```
-
-Install the application and its development dependencies:
-
-```bash
+cd /Users/kane/Dev/AgentDevelopment
 uv sync --extra dev
 ```
 
-## Configure the `.env` file
+## Configure the API key
 
-Create a file named `.env` in the `NotesAssistant` directory. Its contents
-should be:
+Weft reads `ANTHROPIC_API_KEY` from the process environment. It does not parse
+`.env` itself.
+
+If using a local `.env`:
 
 ```dotenv
 ANTHROPIC_API_KEY=replace-with-your-anthropic-api-key
 ```
 
-Replace the placeholder with your real key. Do not add quotes or spaces around
-the `=` unless they are part of the value.
-
-> [!IMPORTANT]
-> Treat `.env` as a secret. Do not commit it, paste it into documentation, or
-> share it in terminal output. Ensure `.env` is listed in `.gitignore` before
-> committing changes.
-
-### Load `.env` in zsh
-
-The current MVP reads `ANTHROPIC_API_KEY` from the process environment, but it
-does not automatically read the `.env` file. Load the file into the current
-terminal session with:
+Protect and load it:
 
 ```bash
+chmod 600 .env
 set -a
 source .env
 set +a
 ```
 
-`set -a` tells zsh to export variables while `.env` is sourced. `set +a` turns
-that behavior off afterward. You must repeat these commands in each new terminal
-session before running `weft ask`.
-
-Confirm that the variable is available without printing the secret:
+Confirm presence without printing the value:
 
 ```bash
 if [[ -n "$ANTHROPIC_API_KEY" ]]; then
@@ -76,140 +46,278 @@ else
 fi
 ```
 
-## Index an Obsidian vault
+`.env` is ignored by Git, but ignore rules do not prevent another local account
+from reading an overly permissive file. Keep mode `0600`.
 
-Indexing parses the vault, creates local embeddings, stores note chunks in a
-local vector index, and builds a graph from the vault's `[[wikilinks]]`.
-Indexing does not call Claude, so it does not require the API key.
-
-Run:
+## Index the Vault
 
 ```bash
 uv run weft index "/path/to/your/Obsidian Vault"
 ```
 
-Use quotes when the vault path contains spaces. For example:
+Indexing performs the following work locally:
 
-```bash
-uv run weft index "$HOME/Documents/My Vault"
-```
+1. canonicalizes and validates the Vault root;
+2. rejects Vault symlinks;
+3. applies the include/exclude privacy policy before reading files;
+4. redacts configured patterns before parsing or embedding;
+5. creates local sentence-transformer embeddings;
+6. persists private vector, metadata, graph, and manifest files.
 
-By default, Weft writes the following local index files under `.weft/`:
+The first run may download the sentence-transformer model. Note text is not sent
+to Claude during indexing.
+
+### Secure defaults
+
+The following relative directories are excluded case-insensitively:
 
 ```text
-.weft/index.npz
-.weft/index.json
-.weft/index.graph.json
+Private/
+.obsidian/
+.trash/
+.weft/
 ```
 
-The command reports how many chunks and wikilink edges it indexed. Run it again
-after adding or changing notes so the index reflects the latest vault contents.
+The generated `_inbox.md` is also excluded from indexing.
 
-### Use a custom index location
+### Use an allowlist
 
-Pass `--store` if you do not want to use `.weft/index`:
+Only index one or more approved Vault areas:
 
 ```bash
-uv run weft index "/path/to/your/Obsidian Vault" --store "/path/to/weft-data/my-index"
+uv run weft index "/path/to/Vault" \
+  --include Projects \
+  --include Reference
 ```
 
-The store path is a base path, so do not add `.npz` or `.json` yourself.
+Each value is a relative Vault path. Absolute paths and `..` traversal are
+rejected. When at least one `--include` is present, notes outside all included
+paths are skipped.
 
-## Ask questions from the CLI
+### Add exclusions
 
-After loading `.env` and building the index, ask a question:
+```bash
+uv run weft index "/path/to/Vault" \
+  --exclude Projects/Client-A \
+  --exclude Journal
+```
+
+Additional exclusions are combined with the secure defaults and take precedence
+over the allowlist.
+
+### Redact sensitive content
+
+`--redact` accepts a Python regular expression and is repeatable:
+
+```bash
+uv run weft index "/path/to/Vault" \
+  --redact 'sk-ant-[A-Za-z0-9_-]+' \
+  --redact '(?im)^password\s*:\s*.*$'
+```
+
+Matches become `[REDACTED]` before parsing, embeddings, and persistence. Quote
+regular expressions so the shell does not expand them. Test project-specific
+patterns on non-sensitive sample notes before relying on them; an overly broad
+expression can remove useful context.
+
+### Explicitly include `Private/`
+
+```bash
+uv run weft index "/path/to/Vault" --include-private
+```
+
+This removes only the default `Private/` exclusion. It is deliberately explicit:
+if a Private chunk is later retrieved by `ask`, that chunk may be sent to Claude.
+Prefer a narrow `--include` policy and redaction whenever possible.
+
+### Custom store location
+
+```bash
+uv run weft index "/path/to/Vault" \
+  --store "/path/to/weft-data/my-index"
+```
+
+The store value is a base path; do not add `.npz` or `.json`. The same base path
+must be passed to later `ask` and `suggest` commands.
+
+## Ask questions
 
 ```bash
 uv run weft ask "What did I decide about the project architecture?"
 ```
 
-Weft retrieves relevant chunks, expands the results using linked notes when a
-link graph is available, and sends that context to Claude. The response includes
-a source list containing the relevant note paths.
+Vector retrieval runs locally. If a graph sidecar exists, one-hop linked notes
+may add a bounded number of source chunks. The structured prompt labels source
+objects as untrusted note data and asks Claude to cite them as `[n]`.
 
-### Change the number of initial search results
-
-The default is five vector-search results. Change it with `--k`:
+Change the initial result count within its enforced range:
 
 ```bash
 uv run weft ask "What are my current priorities?" --k 8
 ```
 
-Graph expansion may add related notes beyond those initial results.
+`--k` accepts 1 through 50. Zero, negative, non-integer, and oversized values are
+rejected so slicing cannot accidentally send most of the index.
 
-### Disable graph-aware retrieval
-
-Use pure vector retrieval for comparison:
+Disable graph expansion for comparison:
 
 ```bash
 uv run weft ask "What are my current priorities?" --no-graph
 ```
 
-### Ask against a custom index
-
-When indexing with `--store`, pass the same base path when asking:
+Use a custom index:
 
 ```bash
-uv run weft ask "What did I decide?" --store "/path/to/weft-data/my-index"
+uv run weft ask "What did I decide?" \
+  --store "/path/to/weft-data/my-index"
 ```
 
-## Typical session
+### API audit log
 
-The complete workflow in a new terminal is:
+Before every supported CLI LLM request, Weft appends the exact system prompt and
+payload to the store directory's `api-log.jsonl`. The write occurs before the
+network request, so failed attempts are still visible.
+
+The log uses mode `0600`, but it may contain note text, paths, and the question.
+Do not paste it into issues or support chats without reviewing and redacting it.
+
+## Suggest inferred links
 
 ```bash
-cd /Users/kane/Dev/AgentDevelopment/NotesAssistant
+uv run weft suggest "/path/to/Vault"
+```
 
+The default candidate search and rationale are local. It considers semantically
+close pairs not already joined by an explicit wikilink and respects the proposal
+ledger.
+
+Optionally request one batched Claude rationale:
+
+```bash
+uv run weft suggest "/path/to/Vault" --rationale
+```
+
+Only note-path/tag/score metadata is included in that rationale request, and the
+payload is recorded in the same API audit log.
+
+### Inbox preservation
+
+`suggest` now follows these rules:
+
+- the index manifest must identify the same canonical Vault;
+- an index created before the manifest feature must be rebuilt;
+- zero new suggestions leave `_inbox.md` unchanged;
+- an existing regular inbox is not replaced by default;
+- an inbox symlink or non-regular target is always rejected;
+- the ledger is updated only after the inbox is written successfully.
+
+After deliberately reviewing the current inbox, explicit replacement is
+available:
+
+```bash
+uv run weft suggest "/path/to/Vault" --overwrite-inbox
+```
+
+Prefer moving the reviewed inbox instead. `--overwrite-inbox` is an escape hatch,
+not the normal workflow.
+
+Threshold and attention-budget controls are bounded:
+
+```bash
+uv run weft suggest "/path/to/Vault" --threshold 0.85 --limit 5
+```
+
+- threshold must be finite and between -1 and 1;
+- limit must be between 0 and 100.
+
+## Generated files and permissions
+
+The default store contains:
+
+```text
+.weft/index.npz             # local vectors
+.weft/index.json            # redacted chunk text and metadata
+.weft/index.graph.json      # explicit wikilink graph
+.weft/index.manifest.json   # Vault binding and effective privacy policy
+.weft/suggestions.jsonl     # proposed-pair ledger
+.weft/api-log.jsonl         # exact outbound LLM payloads
+```
+
+Weft creates these files with mode `0600` and the dedicated `.weft/` directory
+with mode `0700`. Existing files are corrected when Weft next writes them.
+
+To inspect permissions on macOS without printing contents:
+
+```bash
+stat -f '%Sp %N' .env .weft .weft/*
+```
+
+## Typical secure session
+
+```bash
+cd /Users/kane/Dev/AgentDevelopment
+
+chmod 600 .env
 set -a
 source .env
 set +a
 
-uv run weft index "/path/to/your/Obsidian Vault"
-uv run weft ask "Summarize my notes about the next release."
+uv run weft index "/path/to/Vault" \
+  --include Projects \
+  --exclude Projects/Confidential \
+  --redact 'sk-ant-[A-Za-z0-9_-]+'
+
+uv run weft ask "Summarize decisions about the next release."
+uv run weft suggest "/path/to/Vault"
 ```
 
-You only need to run `uv sync --extra dev` again when the project dependencies
-change. Re-index whenever the vault changes materially.
+Re-index whenever notes or privacy rules change materially.
 
 ## Troubleshooting
 
-### `No index at .weft/index`
+### `Index has no security manifest`
 
-Run the index command first from the same directory:
+The index predates privacy-policy and Vault-binding metadata. Re-run `weft index`
+with the intended privacy options.
+
+### `Index belongs to a different vault`
+
+The `suggest` Vault does not match the canonical path stored at index time. Use
+the correct Vault or build a separate index for this one.
+
+### `Vault symlinks are not allowed`
+
+Remove or replace the reported symlink with a regular file. Weft intentionally
+does not offer a follow-symlink override because it would weaken the Vault
+confidentiality boundary.
+
+### `Inbox already exists`
+
+Review and move `_inbox.md`, then rerun. Use `--overwrite-inbox` only when losing
+the existing generated review state is intentional.
+
+### Authentication error
+
+Check presence without printing the key:
 
 ```bash
-uv run weft index "/path/to/your/Obsidian Vault"
+[[ -n "$ANTHROPIC_API_KEY" ]] && echo configured || echo missing
 ```
 
-If you used `--store` while indexing, provide the same value to `weft ask`.
-
-### Authentication or missing API-key error
-
-Check whether the variable is loaded:
-
-```bash
-[[ -n "$ANTHROPIC_API_KEY" ]] && echo "configured" || echo "missing"
-```
-
-If it is missing, source `.env` again. Do not use `echo $ANTHROPIC_API_KEY`,
-because that prints the secret to the terminal.
-
-### The first indexing or question command is slow
-
-The local sentence-transformer model may need to be downloaded on first use.
-Later runs can reuse the cached model.
+If missing, source `.env` again. Never use `echo $ANTHROPIC_API_KEY`.
 
 ### Answers do not include recent notes
 
-The MVP does not watch the vault continuously. Run `weft index` again after
-editing notes.
+The current milestone does not watch the Vault. Re-run `weft index` after edits.
 
-### Inspect the available commands
-
-Use the built-in help:
+### Inspect command help
 
 ```bash
 uv run weft --help
 uv run weft index --help
 uv run weft ask --help
+uv run weft suggest --help
 ```
+
+For root causes, regression coverage, dependency advisories, and residual risks,
+read [the security hardening record](../security/2026-08-08-security-hardening.md).

@@ -11,6 +11,7 @@ from pathlib import Path
 import networkx as nx
 
 from weft.parser import Note
+from weft.security import secure_write_text
 
 
 def _resolve_link(
@@ -75,11 +76,17 @@ class LinkGraph:
             "nodes": list(self._g.nodes()),
             "edges": [list(e) for e in self._g.edges()],
         }
-        path.write_text(json.dumps(data), encoding="utf-8")
+        secure_write_text(path, json.dumps(data, ensure_ascii=False))
 
     @classmethod
     def load(cls, path: Path) -> "LinkGraph":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
+            raise ValueError("Invalid link graph nodes")
+        if not isinstance(data.get("edges"), list):
+            raise ValueError("Invalid link graph edges")
+        if any(not isinstance(edge, list) or len(edge) != 2 for edge in data["edges"]):
+            raise ValueError("Invalid link graph edge")
         g = nx.Graph()
         g.add_nodes_from(data["nodes"])
         g.add_edges_from(tuple(e) for e in data["edges"])

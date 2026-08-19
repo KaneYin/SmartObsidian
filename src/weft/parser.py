@@ -11,6 +11,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from weft.privacy import PrivacyPolicy
+from weft.security import read_vault_text, vault_root
+
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)")  # [[target]], [[target|alias]], [[target#h]]
 INLINE_TAG_RE = re.compile(r"(?:^|\s)#([A-Za-z][\w/-]*)")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -55,9 +58,10 @@ def _split_frontmatter(raw: str) -> tuple[dict, str]:
     return fm, body
 
 
-def parse_note(path: Path) -> Note:
+def parse_note(path: Path, *, raw: str | None = None) -> Note:
     # errors="replace": one non-UTF-8 note must not abort indexing the vault.
-    raw = path.read_text(encoding="utf-8", errors="replace")
+    if raw is None:
+        raw = path.read_text(encoding="utf-8", errors="replace")
     fm, body = _split_frontmatter(raw)
 
     tags: list[str] = []
@@ -98,14 +102,25 @@ def parse_note(path: Path) -> Note:
 GENERATED_NOTES = {"_inbox.md"}
 
 
-def parse_vault(vault_path: Path) -> list[Note]:
-    vault_path = Path(vault_path)
+def parse_vault(vault_path: Path, policy: PrivacyPolicy | None = None) -> list[Note]:
+    """Parse allowed notes without following paths outside the vault.
+
+    Privacy filtering happens before file reads, and redaction happens before
+    parsing or chunking, so excluded or redacted content cannot enter either the
+    embedding input or the persisted metadata.
+    """
+    root = vault_root(vault_path)
+    policy = policy or PrivacyPolicy()
     notes: list[Note] = []
-    for md in sorted(vault_path.rglob("*.md")):
+    for md in sorted(root.rglob("*.md")):
         if md.name in GENERATED_NOTES:
             continue
-        note = parse_note(md)
-        note.rel_path = md.relative_to(vault_path).as_posix()
+        rel_path = md.relative_to(root).as_posix()
+        if not policy.allows(rel_path):
+            continue
+        raw = policy.redact(read_vault_text(md, root))
+        note = parse_note(md, raw=raw)
+        note.rel_path = rel_path
         notes.append(note)
     return notes
 

@@ -9,6 +9,7 @@ template. The `--rationale` Claude pass lives in the CLI, not here."""
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -101,6 +102,12 @@ def infer_links(
 
     O(N²) note-pair cosine — trivial at current vault scale; revisit with an
     ANN index if vaults grow large (consistent with M1's full-scan note)."""
+    if not math.isfinite(threshold) or not -1.0 <= threshold <= 1.0:
+        raise ValueError("threshold must be a finite cosine value between -1 and 1")
+    if limit < 0:
+        raise ValueError("limit must not be negative")
+    if limit == 0:
+        return []
     vecs = note_vectors(store)
     names = sorted(vecs)  # sorted → deterministic; pairs emitted in canonical order
     if len(names) < 2:
