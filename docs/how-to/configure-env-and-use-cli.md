@@ -304,6 +304,29 @@ It is the most sensitive surface Weft has: it is a persistent record about you.
 Nothing is captured unless you run `weft remember`; every `ask` appends one
 episode (question, answer, cited sources) to the local log.
 
+### Let Weft propose memories
+
+Weft can mine your past questions for recurring themes and propose them as memory,
+which you then accept or reject explicitly — nothing is stored without confirmation.
+
+```bash
+uv run weft memory suggest              # mine episodes -> pending proposals (local, offline)
+uv run weft memory suggest --llm        # higher-quality extraction via your provider (audited)
+uv run weft memory pending              # list proposals with ids
+uv run weft memory accept prop_1a2b3c   # promote one into memory (provenance: inferred)
+uv run weft memory reject prop_1a2b3c   # dismiss it; never proposed again
+```
+
+See everything Weft remembers inside Obsidian:
+
+```bash
+uv run weft memory mirror --vault "/path/to/Vault"   # writes read-only _memory.md
+```
+
+`_memory.md` is regenerated on demand, never read back, and excluded from indexing.
+`--limit` bounds proposals per run. Rejected proposals are tombstoned so `suggest`
+does not repeat them.
+
 ## Generated files and permissions
 
 The default store contains:
@@ -318,7 +341,11 @@ The default store contains:
 .weft/config.toml           # provider/model/endpoint selection (non-secret)
 .weft/memory.jsonl          # durable semantic memory (0600)
 .weft/episodes.jsonl        # episodic interaction log (0600)
+.weft/memory-proposals.jsonl # inferred-memory proposals awaiting accept/reject (0600)
 ```
+
+The `weft memory mirror` command writes a read-only `_memory.md` into the *vault*
+(like `_inbox.md`), not into `.weft/`.
 
 Weft creates these files with mode `0600` and the dedicated `.weft/` directory
 with mode `0700`. Existing files are corrected when Weft next writes them.

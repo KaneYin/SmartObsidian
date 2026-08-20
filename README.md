@@ -13,12 +13,13 @@ Implemented milestones:
   optional payload-logged Claude rationale.
 - M3.0: durable agent memory — explicit `remember` of preferences/facts/
   decisions/agent-tasks plus an episodic log, recalled into `ask` across sessions.
+- M3.1: inferred-with-confirmation memory — `memory suggest` mines the episodic
+  log into proposals you `accept`/`reject`, plus a read-only `_memory.md` mirror.
 - M5.0: a pluggable provider layer so reasoning can run on a local open-weight
   model (Ollama) fully offline, or on a remote API, chosen by GPU capability.
 
-Inferred-with-confirmation memory capture and a `_memory.md` vault mirror (M3.1),
-a `chat` REPL (M4), the background daemon, accept/reject workflow, automatic note
-edits, and scheduling remain future work.
+A `chat` REPL (M4), an OpenAI-compatible provider and opt-in fallback (M5.1), the
+background daemon, automatic note edits, and scheduling remain future work.
 
 ## Setup
 
@@ -125,6 +126,7 @@ The default `.weft/` directory contains:
 .weft/config.toml
 .weft/memory.jsonl
 .weft/episodes.jsonl
+.weft/memory-proposals.jsonl
 ```
 
 The JSON index contains redacted note text and the API log contains exact remote
