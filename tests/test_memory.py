@@ -65,3 +65,14 @@ def test_compact_collapses_and_drops_rejected_text(tmp_path):
     assert reloaded.get(b.id).text == ""   # rejected text dropped on compaction
     lines = (tmp_path / "memory.jsonl").read_text().strip().splitlines()
     assert len(lines) == 2
+
+
+def test_log_episode_appends_and_reloads(tmp_path):
+    ms = _store(tmp_path)
+    ep = ms.log_episode("what did I decide?", "You chose LanceDB [1]", ["d.md"])
+    assert ep.id.startswith("ep_")
+    reloaded = _store(tmp_path)
+    eps = reloaded.episodes()
+    assert len(eps) == 1
+    assert eps[0].question == "what did I decide?"
+    assert eps[0].sources == ["d.md"]

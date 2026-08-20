@@ -133,3 +133,18 @@ class MemoryStore:
                 item = MemoryItem(**{**asdict(item), "text": ""})
             lines.append(json.dumps(asdict(item), ensure_ascii=False))
         secure_write_text(self._memory_path, "\n".join(lines) + "\n", overwrite=True)
+
+    # --- episodic log -----------------------------------------------------
+    def log_episode(self, question: str, answer: str, sources: list[str]) -> Episode:
+        ep = Episode(
+            id="ep_" + secrets.token_hex(4),
+            ts=_now(),
+            question=question,
+            answer=answer,
+            sources=list(sources),
+        )
+        secure_append_json(self._episodes_path, asdict(ep))
+        return ep
+
+    def episodes(self) -> list[Episode]:
+        return [Episode(**rec) for rec in _read_jsonl(self._episodes_path)]
