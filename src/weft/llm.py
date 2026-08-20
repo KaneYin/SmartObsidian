@@ -49,6 +49,9 @@ class AuditedLLM:
             {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "purpose": self._purpose,
+                "provider": getattr(self._delegate, "provider", "unknown"),
+                "model": getattr(self._delegate, "model", "unknown"),
+                "left_machine": bool(getattr(self._delegate, "left_machine", True)),
                 "system": system,
                 "prompt": prompt,
             },
@@ -60,11 +63,15 @@ class ClaudeClient:
     """Real backend. Uses adaptive thinking per Anthropic guidance for 4.8;
     non-streaming is fine at this max_tokens for a single CLI answer."""
 
+    provider = "anthropic"
+    left_machine = True
+
     def __init__(self, model: str = MODEL, max_tokens: int = 4000):
         import anthropic
 
         self._client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
         self._model = model
+        self.model = model  # public metadata for the audit log
         self._max_tokens = max_tokens
 
     def complete(self, system: str, prompt: str) -> str:
