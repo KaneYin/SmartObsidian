@@ -99,7 +99,7 @@ def parse_note(path: Path, *, raw: str | None = None) -> Note:
 
 # Weft-generated files that live in the vault but must never be indexed
 # (else `_inbox.md` self-suggests on the next `weft index`).
-GENERATED_NOTES = {"_inbox.md"}
+GENERATED_NOTES = {"_inbox.md", "_memory.md"}
 
 
 def parse_vault(vault_path: Path, policy: PrivacyPolicy | None = None) -> list[Note]:

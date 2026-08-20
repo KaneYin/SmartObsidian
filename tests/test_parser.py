@@ -40,3 +40,11 @@ def test_chunk_note_splits_by_heading_and_carries_source(sample_vault):
     assert "Coffee" in headings and "Espresso" in headings
     espresso = next(c for c in chunks if c.heading == "Espresso")
     assert "concentrated" in espresso.text
+
+
+def test_memory_mirror_excluded_from_indexing(tmp_path):
+    (tmp_path / "note.md").write_text("# Note\nbody", encoding="utf-8")
+    (tmp_path / "_memory.md").write_text("# Weft Memory\nstuff", encoding="utf-8")
+    rels = {n.rel_path for n in parse_vault(tmp_path)}
+    assert "note.md" in rels
+    assert "_memory.md" not in rels
