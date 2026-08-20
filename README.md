@@ -11,11 +11,14 @@ Implemented milestones:
 - M1: one-hop graph-aware retrieval, with `--no-graph` for comparison;
 - M2: local inferred-link suggestions, an append-only proposal ledger, and an
   optional payload-logged Claude rationale.
+- M3.0: durable agent memory — explicit `remember` of preferences/facts/
+  decisions/agent-tasks plus an episodic log, recalled into `ask` across sessions.
 - M5.0: a pluggable provider layer so reasoning can run on a local open-weight
   model (Ollama) fully offline, or on a remote API, chosen by GPU capability.
 
-The background daemon, accept/reject workflow, automatic note edits, scheduling,
-and the persistent agent-memory layer remain future work.
+Inferred-with-confirmation memory capture and a `_memory.md` vault mirror (M3.1),
+a `chat` REPL (M4), the background daemon, accept/reject workflow, automatic note
+edits, and scheduling remain future work.
 
 ## Setup
 
@@ -120,6 +123,8 @@ The default `.weft/` directory contains:
 .weft/suggestions.jsonl
 .weft/api-log.jsonl
 .weft/config.toml
+.weft/memory.jsonl
+.weft/episodes.jsonl
 ```
 
 The JSON index contains redacted note text and the API log contains exact remote

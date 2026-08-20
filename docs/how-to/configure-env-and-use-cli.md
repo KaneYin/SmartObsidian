@@ -274,6 +274,36 @@ uv run weft suggest "/path/to/Vault" --threshold 0.85 --limit 5
 - threshold must be finite and between -1 and 1;
 - limit must be between 0 and 100.
 
+## Remember things across sessions
+
+Weft keeps durable memory in the private store so `ask` recalls what you told it,
+within and across sessions.
+
+```bash
+uv run weft remember "I prefer concise answers" --type preference
+uv run weft remember "Chose LanceDB for the vector store" --type decision
+```
+
+Types: `preference`, `fact`, `decision`, `task` (default `fact`). Preferences and
+facts are always offered to the model; decisions, tasks, and past questions are
+recalled only when relevant to your question.
+
+Inspect and curate:
+
+```bash
+uv run weft memory list                 # active items with ids
+uv run weft memory show mem_1a2b3c4d    # one item, including status
+uv run weft memory forget mem_1a2b3c4d  # tombstone it (real removal on compact)
+uv run weft memory compact              # collapse history; drop rejected text
+```
+
+Skip memory for one question with `uv run weft ask "..." --no-memory`.
+
+Memory lives in `.weft/memory.jsonl` and `.weft/episodes.jsonl` at mode `0600`.
+It is the most sensitive surface Weft has: it is a persistent record about you.
+Nothing is captured unless you run `weft remember`; every `ask` appends one
+episode (question, answer, cited sources) to the local log.
+
 ## Generated files and permissions
 
 The default store contains:
@@ -286,6 +316,8 @@ The default store contains:
 .weft/suggestions.jsonl     # proposed-pair ledger
 .weft/api-log.jsonl         # outbound LLM payloads + provider/model/left_machine
 .weft/config.toml           # provider/model/endpoint selection (non-secret)
+.weft/memory.jsonl          # durable semantic memory (0600)
+.weft/episodes.jsonl        # episodic interaction log (0600)
 ```
 
 Weft creates these files with mode `0600` and the dedicated `.weft/` directory
