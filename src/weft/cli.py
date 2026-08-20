@@ -28,10 +28,13 @@ from weft.inbox import render_inbox, validate_inbox_target, write_inbox
 from weft.ledger import load_seen, record
 from weft.llm import AuditedLLM, LLMClient
 from weft.memory import SEMANTIC_TYPES, MemoryStore
+from weft.memory_infer import infer_candidates
+from weft.memory_mirror import render_mirror, write_mirror
 from weft.models import TIERS, pick_default
 from weft.ollama_client import list_models as ollama_installed
 from weft.ollama_client import pull as ollama_pull
 from weft.privacy import DEFAULT_EXCLUDES, PrivacyPolicy
+from weft.proposals import ProposalStore
 from weft.providers import ProviderUnavailable, resolve_llm
 from weft.security import WeftSecurityError, terminal_safe, vault_root
 from weft.store import VectorStore
@@ -43,6 +46,7 @@ DEFAULT_LIMIT = 10
 MAX_K = 50
 MAX_LIMIT = 100
 MAX_MEMORY_TEXT = 2000
+DEFAULT_MEMORY_LIMIT = 10
 
 
 def make_embedder() -> Embedder:
@@ -60,6 +64,10 @@ def make_memory(store_path: Path) -> MemoryStore:
         store_path.parent / "memory.jsonl",
         store_path.parent / "episodes.jsonl",
     )
+
+
+def make_proposals(store_path: Path) -> ProposalStore:
+    return ProposalStore(store_path.parent / "memory-proposals.jsonl")
 
 
 def _llm_overrides(args: argparse.Namespace) -> dict:
@@ -299,7 +307,10 @@ def _cmd_remember(args: argparse.Namespace) -> int:
 
 
 def _cmd_memory(args: argparse.Namespace) -> int:
-    memory = make_memory(Path(args.store))
+    store_path = Path(args.store)
+    memory = make_memory(store_path)
+    proposals = make_proposals(store_path)
+
     if args.action == "list":
         for item in memory.active_semantic():
             print(f"{item.id}  [{item.type}]  {terminal_safe(item.text)}")
@@ -321,9 +332,60 @@ def _cmd_memory(args: argparse.Namespace) -> int:
             return 1
         print(f"forgot {args.id}")
         return 0
-    # compact
-    memory.compact()
-    print("compacted memory")
+    if args.action == "compact":
+        memory.compact()
+        print("compacted memory")
+        return 0
+    if args.action == "suggest":
+        llm = None
+        if args.llm:
+            try:
+                llm = AuditedLLM(
+                    make_llm(_llm_overrides(args), store_path),
+                    store_path.parent / "api-log.jsonl", "memory_suggest",
+                )
+            except ProviderUnavailable as exc:
+                print(f"--llm unavailable ({terminal_safe(exc)}); using heuristic.",
+                      file=sys.stderr)
+        existing = {i.text for i in memory.active_semantic()}
+        candidates = infer_candidates(
+            memory.episodes(), existing_texts=existing,
+            seen_ids=proposals.known_ids(), limit=args.limit, llm=llm,
+        )
+        added = proposals.add(candidates)
+        n = len(added)
+        print(f"{n} {'proposal' if n == 1 else 'proposals'} "
+              f"(run `weft memory pending` to review)")
+        return 0
+    if args.action == "pending":
+        for prop in proposals.pending():
+            print(f"{prop.id}  [{prop.type}]  {terminal_safe(prop.text)}")
+        return 0
+    if args.action == "accept":
+        try:
+            prop = proposals.get(args.id)
+        except KeyError:
+            print(f"no proposal with id {terminal_safe(str(args.id))}", file=sys.stderr)
+            return 1
+        memory.remember(prop.type, prop.text, provenance="inferred", source=prop.source)
+        proposals.mark(prop.id, "accepted")
+        print(f"accepted {prop.id} -> memory")
+        return 0
+    if args.action == "reject":
+        try:
+            proposals.mark(args.id, "rejected")
+        except KeyError:
+            print(f"no proposal with id {terminal_safe(str(args.id))}", file=sys.stderr)
+            return 1
+        print(f"rejected {args.id}")
+        return 0
+    # mirror
+    if not args.vault:
+        print("memory mirror requires --vault <path>", file=sys.stderr)
+        return 2
+    text = render_mirror(memory.active_semantic(), proposals.pending(), datetime.now())
+    path = write_mirror(Path(args.vault), text)
+    print(f"wrote {terminal_safe(path)}")
     return 0
 
 
@@ -516,9 +578,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_remember.add_argument("--store", default=DEFAULT_STORE)
     p_remember.set_defaults(func=_cmd_remember)
 
-    p_memory = sub.add_parser("memory", help="List/inspect/forget/compact memory.")
-    p_memory.add_argument("action", choices=["list", "show", "forget", "compact"])
-    p_memory.add_argument("id", nargs="?", help="Memory id for show/forget.")
+    p_memory = sub.add_parser("memory", help="Inspect/curate/propose memory.")
+    p_memory.add_argument(
+        "action",
+        choices=["list", "show", "forget", "compact",
+                 "suggest", "pending", "accept", "reject", "mirror"],
+    )
+    p_memory.add_argument(
+        "id", nargs="?", help="Memory/proposal id for show/forget/accept/reject."
+    )
+    p_memory.add_argument("--vault", help="Vault path for `mirror`.")
+    p_memory.add_argument(
+        "--llm", action="store_true",
+        help="Opt-in LLM extraction for `suggest` (payload-logged; falls back to heuristic).",
+    )
+    p_memory.add_argument(
+        "--limit", type=_bounded_int("limit", 0, MAX_LIMIT), default=DEFAULT_MEMORY_LIMIT,
+        help=f"Max proposals per suggest run (0-{MAX_LIMIT}; default: 10).",
+    )
+    p_memory.add_argument("--provider", help="Provider override for --llm.")
+    p_memory.add_argument("--model", help="Model override for --llm.")
     p_memory.add_argument("--store", default=DEFAULT_STORE)
     p_memory.set_defaults(func=_cmd_memory)
 
