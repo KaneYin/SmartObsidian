@@ -6,7 +6,9 @@ covers the current M0–M2 and M5.0 commands and their security behavior.
 
 By default reasoning uses the Anthropic API. With the local provider (M5.0) the
 whole pipeline — parsing, embeddings, retrieval, and reasoning — runs offline on
-your machine's GPU. See [Run fully offline](#run-fully-offline-with-a-local-model).
+your machine's GPU. See [Run fully offline](#run-fully-offline-with-a-local-model),
+or the dedicated [How to Change Weft's Model Provider](change-model-providers.md)
+for switching, per-command overrides, custom endpoints, and troubleshooting.
 
 ## Prerequisites
 
