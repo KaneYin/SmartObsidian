@@ -1,0 +1,100 @@
+"""Durable agent memory: an episodic interaction log plus curated semantic items
+(preference / fact / decision / task) with a lifecycle status. Append-only with
+latest-record-wins on load; rejected/superseded records are kept as tombstones.
+Private to `.weft/` — memory is the most sensitive surface Weft has."""
+
+from __future__ import annotations
+
+import json
+import secrets
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+from weft.security import UnsafeWriteError, secure_append_json, secure_write_text
+
+SEMANTIC_TYPES = {"preference", "fact", "decision", "task"}
+_ALWAYS_INJECT = {"preference", "fact"}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@dataclass
+class MemoryItem:
+    id: str
+    type: str
+    text: str
+    status: str = "active"          # active | superseded | rejected
+    provenance: str = "explicit"    # explicit | inferred
+    confidence: float | None = None
+    source: str = "weft remember"
+    supersedes: str | None = None
+    created_at: str = field(default_factory=_now)
+    updated_at: str = field(default_factory=_now)
+
+
+@dataclass
+class Episode:
+    id: str
+    ts: str
+    question: str
+    answer: str
+    sources: list[str]
+
+
+@dataclass
+class MemoryHit:
+    score: float
+    kind: str    # "decision" | "task" | "log"
+    text: str
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    path = Path(path)
+    if not path.exists():
+        return []
+    if path.is_symlink():
+        raise UnsafeWriteError(f"Refusing to read memory symlink: {path}")
+    out: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            out.append(json.loads(line))
+    return out
+
+
+class MemoryStore:
+    def __init__(self, memory_path: Path, episodes_path: Path):
+        self._memory_path = Path(memory_path)
+        self._episodes_path = Path(episodes_path)
+
+    # --- semantic items ---------------------------------------------------
+    def _items(self) -> dict[str, MemoryItem]:
+        """Latest record per id wins (append-only collapse)."""
+        latest: dict[str, MemoryItem] = {}
+        for rec in _read_jsonl(self._memory_path):
+            latest[rec["id"]] = MemoryItem(**rec)
+        return latest
+
+    def remember(self, type: str, text: str, *, provenance: str = "explicit",
+                 confidence: float | None = None, source: str = "weft remember") -> MemoryItem:
+        if type not in SEMANTIC_TYPES:
+            raise ValueError(f"unknown memory type: {type}")
+        item = MemoryItem(
+            id="mem_" + secrets.token_hex(4),
+            type=type,
+            text=text,
+            provenance=provenance,
+            confidence=confidence,
+            source=source,
+        )
+        secure_append_json(self._memory_path, asdict(item))
+        return item
+
+    def active_semantic(self, type: str | None = None) -> list[MemoryItem]:
+        items = [i for i in self._items().values() if i.status == "active"]
+        if type is not None:
+            items = [i for i in items if i.type == type]
+        return sorted(items, key=lambda i: i.created_at)
