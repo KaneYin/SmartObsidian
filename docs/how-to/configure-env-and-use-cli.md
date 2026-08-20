@@ -1,8 +1,12 @@
 # Configure Weft and Use the CLI Safely
 
 Weft indexes an Obsidian Markdown Vault locally, retrieves allowed note chunks,
-and sends only selected context to Claude for an answer. This guide covers the
-current M0–M2 commands and their security behavior.
+and sends only selected context to a language model for an answer. This guide
+covers the current M0–M2 and M5.0 commands and their security behavior.
+
+By default reasoning uses the Anthropic API. With the local provider (M5.0) the
+whole pipeline — parsing, embeddings, retrieval, and reasoning — runs offline on
+your machine's GPU. See [Run fully offline](#run-fully-offline-with-a-local-model).
 
 ## Prerequisites
 
@@ -181,6 +185,46 @@ network request, so failed attempts are still visible.
 The log uses mode `0600`, but it may contain note text, paths, and the question.
 Do not paste it into issues or support chats without reviewing and redacting it.
 
+## Run fully offline with a local model
+
+Weft can run its reasoning step on a local open-weight model via
+[Ollama](https://ollama.com) — no network, no API key. Install Ollama, then:
+
+```bash
+uv run weft config set provider ollama   # persists to .weft/config.toml
+uv run weft models list                   # tiers + the recommended model for your GPU
+uv run weft models pull                   # pulls the recommended model (confirms first)
+uv run weft ask "What did I decide about X?"   # now answered locally
+```
+
+`weft models list` detects the GPU-memory budget (Apple Metal unified memory or
+NVIDIA VRAM) and marks the recommended tier. On an 18 GB Apple Silicon machine
+the safe default is the 8B `medium` tier; opt up to `large` (14B) explicitly.
+
+Downloads are always confirmed first; pass `--yes` to skip the prompt in scripts.
+Once a model is pulled, `index`, `ask`, and `suggest` run with zero network.
+
+Override the provider or model for a single run without changing config:
+
+```bash
+uv run weft ask "..." --provider anthropic --model claude-opus-4-8
+uv run weft ask "..." --provider ollama --model qwen2.5:14b
+```
+
+Selection precedence: `--provider`/`--model` flags > `WEFT_PROVIDER`/`WEFT_MODEL`/
+`WEFT_ENDPOINT` env vars > `.weft/config.toml` > the GPU-tier default. The config
+file holds only non-secret provider/model/endpoint values; API keys stay in the
+environment and are never written to disk.
+
+If the selected provider cannot serve, Weft fails fast with a specific remedy
+(for example, start Ollama with `ollama serve`, run `weft models pull <tag>`, or
+export `ANTHROPIC_API_KEY`). It never silently switches to a different provider,
+since a local→remote switch would send note content off your machine.
+
+Every request — local or remote — is still recorded in the `0600` audit log with
+`provider`, `model`, and a `left_machine` flag (`false` for local Ollama), so the
+log is an honest record of when data crossed the machine boundary.
+
 ## Suggest inferred links
 
 ```bash
@@ -240,7 +284,8 @@ The default store contains:
 .weft/index.graph.json      # explicit wikilink graph
 .weft/index.manifest.json   # Vault binding and effective privacy policy
 .weft/suggestions.jsonl     # proposed-pair ledger
-.weft/api-log.jsonl         # exact outbound LLM payloads
+.weft/api-log.jsonl         # outbound LLM payloads + provider/model/left_machine
+.weft/config.toml           # provider/model/endpoint selection (non-secret)
 ```
 
 Weft creates these files with mode `0600` and the dedicated `.weft/` directory

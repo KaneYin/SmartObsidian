@@ -11,9 +11,11 @@ Implemented milestones:
 - M1: one-hop graph-aware retrieval, with `--no-graph` for comparison;
 - M2: local inferred-link suggestions, an append-only proposal ledger, and an
   optional payload-logged Claude rationale.
+- M5.0: a pluggable provider layer so reasoning can run on a local open-weight
+  model (Ollama) fully offline, or on a remote API, chosen by GPU capability.
 
 The background daemon, accept/reject workflow, automatic note edits, scheduling,
-and local LLM backend remain future work.
+and the persistent agent-memory layer remain future work.
 
 ## Setup
 
@@ -26,6 +28,18 @@ Set the API key used by `weft ask` and optional suggestion rationales:
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+To run fully offline instead, install [Ollama](https://ollama.com), then select
+the local provider and pull a model sized for your GPU:
+
+```bash
+uv run weft config set provider ollama   # persists to .weft/config.toml
+uv run weft models list                  # tiers + the pick for your GPU
+uv run weft models pull                  # pulls the recommended model (confirms first)
+```
+
+Selection precedence is CLI flags > `WEFT_*` env vars > `.weft/config.toml` >
+GPU default. API keys are read from the environment and never written to config.
 
 If the key is stored in `.env`, protect it before sourcing it:
 
@@ -105,6 +119,7 @@ The default `.weft/` directory contains:
 .weft/index.manifest.json
 .weft/suggestions.jsonl
 .weft/api-log.jsonl
+.weft/config.toml
 ```
 
 The JSON index contains redacted note text and the API log contains exact remote

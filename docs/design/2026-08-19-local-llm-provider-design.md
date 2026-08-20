@@ -45,7 +45,8 @@ be a deliberate, explicit choice.
 
 Design validated against the developer machine: **Apple M3 Pro, 18-core GPU,
 ~18 GB unified memory, Metal 3**. On Apple Silicon the GPU shares unified memory,
-so the usable weight budget is roughly `total × 0.7 ≈ 12.6 GB` → `medium` tier →
+so the usable weight budget is roughly `total × 0.7 ≈ 12.9 GB` → `medium` tier
+(ceiling 13 GB) →
 default `llama3.1:8b`. NVIDIA machines are supported via `nvidia-smi` VRAM
 detection; unknown/CPU-only machines fall back to the smallest tier.
 
@@ -136,7 +137,7 @@ open-weight models ship):
 ```python
 TIERS = [
     Tier("small",  max_budget_mb=6000,  default="qwen2.5:3b",  min_mb=3000),
-    Tier("medium", max_budget_mb=12000, default="llama3.1:8b", min_mb=6000),
+    Tier("medium", max_budget_mb=13000, default="llama3.1:8b", min_mb=6000),
     Tier("large",  max_budget_mb=24000, default="qwen2.5:14b", min_mb=10000),
     Tier("xl",     max_budget_mb=10**9, default="qwen2.5:32b", min_mb=20000),
 ]
