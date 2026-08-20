@@ -33,3 +33,35 @@ def test_persistence_reloads_and_is_private(tmp_path):
     assert [i.text for i in reloaded.active_semantic()] == ["Chose LanceDB"]
     mode = stat.S_IMODE(os.stat(tmp_path / "memory.jsonl").st_mode)
     assert mode == 0o600
+
+
+def test_supersede_replaces_active(tmp_path):
+    ms = _store(tmp_path)
+    old = ms.remember("decision", "Chose Neo4j")
+    updated = ms.supersede(old.id, "Chose LanceDB")
+    texts = [i.text for i in ms.active_semantic()]
+    assert texts == ["Chose LanceDB"]
+    assert updated.supersedes == old.id
+    assert updated.type == "decision"
+
+
+def test_reject_tombstones_item(tmp_path):
+    ms = _store(tmp_path)
+    item = ms.remember("fact", "secret detail")
+    ms.reject(item.id)
+    assert ms.active_semantic() == []
+    assert ms.get(item.id).status == "rejected"
+
+
+def test_compact_collapses_and_drops_rejected_text(tmp_path):
+    ms = _store(tmp_path)
+    a = ms.remember("preference", "keep me")
+    b = ms.remember("fact", "forget me")
+    ms.reject(b.id)
+    ms.compact()
+    reloaded = _store(tmp_path)
+    assert [i.text for i in reloaded.active_semantic()] == ["keep me"]
+    assert reloaded.get(b.id).status == "rejected"
+    assert reloaded.get(b.id).text == ""   # rejected text dropped on compaction
+    lines = (tmp_path / "memory.jsonl").read_text().strip().splitlines()
+    assert len(lines) == 2

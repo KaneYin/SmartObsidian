@@ -98,3 +98,38 @@ class MemoryStore:
         if type is not None:
             items = [i for i in items if i.type == type]
         return sorted(items, key=lambda i: i.created_at)
+
+    def get(self, item_id: str) -> MemoryItem:
+        item = self._items().get(item_id)
+        if item is None:
+            raise KeyError(item_id)
+        return item
+
+    def supersede(self, item_id: str, new_text: str) -> MemoryItem:
+        old = self.get(item_id)
+        new = MemoryItem(
+            id="mem_" + secrets.token_hex(4),
+            type=old.type,
+            text=new_text,
+            provenance=old.provenance,
+            source=old.source,
+            supersedes=old.id,
+        )
+        secure_append_json(self._memory_path, asdict(new))
+        tomb = MemoryItem(**{**asdict(old), "status": "superseded", "updated_at": _now()})
+        secure_append_json(self._memory_path, asdict(tomb))
+        return new
+
+    def reject(self, item_id: str) -> None:
+        old = self.get(item_id)
+        tomb = MemoryItem(**{**asdict(old), "status": "rejected", "updated_at": _now()})
+        secure_append_json(self._memory_path, asdict(tomb))
+
+    def compact(self) -> None:
+        collapsed = self._items()
+        lines = []
+        for item in collapsed.values():
+            if item.status == "rejected":
+                item = MemoryItem(**{**asdict(item), "text": ""})
+            lines.append(json.dumps(asdict(item), ensure_ascii=False))
+        secure_write_text(self._memory_path, "\n".join(lines) + "\n", overwrite=True)
