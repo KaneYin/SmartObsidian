@@ -27,6 +27,7 @@ from weft.index import build_index, graph_path_for, manifest_path_for
 from weft.inbox import render_inbox, validate_inbox_target, write_inbox
 from weft.ledger import load_seen, record
 from weft.llm import AuditedLLM, LLMClient
+from weft.memory import SEMANTIC_TYPES, MemoryStore
 from weft.models import TIERS, pick_default
 from weft.ollama_client import list_models as ollama_installed
 from weft.ollama_client import pull as ollama_pull
@@ -41,6 +42,7 @@ DEFAULT_THRESHOLD = 0.80
 DEFAULT_LIMIT = 10
 MAX_K = 50
 MAX_LIMIT = 100
+MAX_MEMORY_TEXT = 2000
 
 
 def make_embedder() -> Embedder:
@@ -51,6 +53,13 @@ def make_llm(overrides: dict, store_path: Path) -> LLMClient:
     """Resolve the configured provider into a raw LLM client. The caller wraps
     it in AuditedLLM. Raises ProviderUnavailable with an actionable remedy."""
     return resolve_llm(overrides, store_path=store_path, env=dict(os.environ))
+
+
+def make_memory(store_path: Path) -> MemoryStore:
+    return MemoryStore(
+        store_path.parent / "memory.jsonl",
+        store_path.parent / "episodes.jsonl",
+    )
 
 
 def _llm_overrides(args: argparse.Namespace) -> dict:
@@ -141,7 +150,10 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         print(terminal_safe(exc), file=sys.stderr)
         return 1
     llm = AuditedLLM(raw_llm, store_path.parent / "api-log.jsonl", "ask")
-    result = ask(args.question, make_embedder(), store, llm, k=args.k, graph=link_graph)
+    memory = None if args.no_memory else make_memory(store_path)
+    result = ask(
+        args.question, make_embedder(), store, llm, k=args.k, graph=link_graph, memory=memory
+    )
 
     print(terminal_safe(result.answer))
     if result.sources:
@@ -274,6 +286,47 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_remember(args: argparse.Namespace) -> int:
+    if args.type not in SEMANTIC_TYPES:
+        print(f"--type must be one of: {', '.join(sorted(SEMANTIC_TYPES))}", file=sys.stderr)
+        return 2
+    if not args.text or len(args.text) > MAX_MEMORY_TEXT:
+        print(f"memory text must be 1-{MAX_MEMORY_TEXT} characters", file=sys.stderr)
+        return 2
+    item = make_memory(Path(args.store)).remember(args.type, args.text)
+    print(f"remembered [{item.type}] {item.id}: {terminal_safe(item.text)}")
+    return 0
+
+
+def _cmd_memory(args: argparse.Namespace) -> int:
+    memory = make_memory(Path(args.store))
+    if args.action == "list":
+        for item in memory.active_semantic():
+            print(f"{item.id}  [{item.type}]  {terminal_safe(item.text)}")
+        return 0
+    if args.action == "show":
+        try:
+            item = memory.get(args.id)
+        except KeyError:
+            print(f"no memory with id {terminal_safe(str(args.id))}", file=sys.stderr)
+            return 1
+        print(f"{item.id} [{item.type}] status={item.status}")
+        print(terminal_safe(item.text))
+        return 0
+    if args.action == "forget":
+        try:
+            memory.reject(args.id)
+        except KeyError:
+            print(f"no memory with id {terminal_safe(str(args.id))}", file=sys.stderr)
+            return 1
+        print(f"forgot {args.id}")
+        return 0
+    # compact
+    memory.compact()
+    print("compacted memory")
+    return 0
+
+
 def _cmd_config(args: argparse.Namespace) -> int:
     path = config_path_for(Path(args.store))
     if args.action == "show":
@@ -391,6 +444,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable graph-aware retrieval; use pure vector search (for A/B comparison).",
     )
+    p_ask.add_argument(
+        "--no-memory", action="store_true",
+        help="Do not read or write agent memory for this question.",
+    )
     p_ask.set_defaults(func=_cmd_ask)
 
     for provider_sub in (p_ask,):
@@ -449,6 +506,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_models.add_argument("--store", default=DEFAULT_STORE)
     p_models.set_defaults(func=_cmd_models)
+
+    p_remember = sub.add_parser("remember", help="Store a durable memory item.")
+    p_remember.add_argument("text", help="What to remember, in quotes.")
+    p_remember.add_argument(
+        "--type", default="fact",
+        help="preference | fact | decision | task (default: fact).",
+    )
+    p_remember.add_argument("--store", default=DEFAULT_STORE)
+    p_remember.set_defaults(func=_cmd_remember)
+
+    p_memory = sub.add_parser("memory", help="List/inspect/forget/compact memory.")
+    p_memory.add_argument("action", choices=["list", "show", "forget", "compact"])
+    p_memory.add_argument("id", nargs="?", help="Memory id for show/forget.")
+    p_memory.add_argument("--store", default=DEFAULT_STORE)
+    p_memory.set_defaults(func=_cmd_memory)
 
     return parser
 
