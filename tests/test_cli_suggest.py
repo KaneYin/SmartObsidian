@@ -71,7 +71,7 @@ def test_suggest_rationale_uses_llm_and_logs_payload(
     store = tmp_path / "idx"
     _index(linkable_vault, store, monkeypatch)
     monkeypatch.setattr(
-        cli, "make_llm", lambda: FakeLLM(response="these notes cover the same topic")
+        cli, "make_llm", lambda *a, **k: FakeLLM(response="these notes cover the same topic")
     )
     capsys.readouterr()
 

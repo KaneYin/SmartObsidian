@@ -8,18 +8,30 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
+from weft.config import (
+    VALID_PROVIDERS,
+    config_path_for,
+    load_config,
+    save_config,
+)
 from weft.embeddings import Embedder, SentenceTransformerEmbedder
 from weft.graph import LinkGraph
+from weft.hardware import detect_gpu
 from weft.index import build_index, graph_path_for, manifest_path_for
 from weft.inbox import render_inbox, validate_inbox_target, write_inbox
 from weft.ledger import load_seen, record
-from weft.llm import AuditedLLM, ClaudeClient, LLMClient
+from weft.llm import AuditedLLM, LLMClient
+from weft.models import TIERS, pick_default
+from weft.ollama_client import list_models as ollama_installed
+from weft.ollama_client import pull as ollama_pull
 from weft.privacy import DEFAULT_EXCLUDES, PrivacyPolicy
+from weft.providers import ProviderUnavailable, resolve_llm
 from weft.security import WeftSecurityError, terminal_safe, vault_root
 from weft.store import VectorStore
 from weft.suggest import LinkSuggestion, infer_links
@@ -35,8 +47,19 @@ def make_embedder() -> Embedder:
     return SentenceTransformerEmbedder()
 
 
-def make_llm() -> LLMClient:
-    return ClaudeClient()
+def make_llm(overrides: dict, store_path: Path) -> LLMClient:
+    """Resolve the configured provider into a raw LLM client. The caller wraps
+    it in AuditedLLM. Raises ProviderUnavailable with an actionable remedy."""
+    return resolve_llm(overrides, store_path=store_path, env=dict(os.environ))
+
+
+def _llm_overrides(args: argparse.Namespace) -> dict:
+    out: dict = {}
+    if getattr(args, "provider", None):
+        out["provider"] = args.provider
+    if getattr(args, "model", None):
+        out["model"] = args.model
+    return out
 
 
 def _bounded_int(name: str, minimum: int, maximum: int):
@@ -112,7 +135,12 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         if gpath.exists():
             link_graph = LinkGraph.load(gpath)
 
-    llm = AuditedLLM(make_llm(), store_path.parent / "api-log.jsonl", "ask")
+    try:
+        raw_llm = make_llm(_llm_overrides(args), store_path)
+    except ProviderUnavailable as exc:
+        print(terminal_safe(exc), file=sys.stderr)
+        return 1
+    llm = AuditedLLM(raw_llm, store_path.parent / "api-log.jsonl", "ask")
     result = ask(args.question, make_embedder(), store, llm, k=args.k, graph=link_graph)
 
     print(terminal_safe(result.answer))
@@ -219,8 +247,13 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
         return 1
 
     if args.rationale:
+        try:
+            raw_llm = make_llm(_llm_overrides(args), store_path)
+        except ProviderUnavailable as exc:
+            print(terminal_safe(exc), file=sys.stderr)
+            return 1
         llm = AuditedLLM(
-            make_llm(), store_path.parent / "api-log.jsonl", "suggest_rationale"
+            raw_llm, store_path.parent / "api-log.jsonl", "suggest_rationale"
         )
         _apply_claude_rationale(suggestions, llm)
 
@@ -238,6 +271,67 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
     n = len(suggestions)
     plural = "suggestion" if n == 1 else "suggestions"
     print(f"{n} {plural} -> {terminal_safe(inbox_path)}")
+    return 0
+
+
+def _cmd_config(args: argparse.Namespace) -> int:
+    path = config_path_for(Path(args.store))
+    if args.action == "show":
+        cfg = load_config(path)
+        print(f"provider = {cfg.provider}\nmodel = {cfg.model}\nendpoint = {cfg.endpoint}")
+        return 0
+    if args.action == "path":
+        print(path)
+        return 0
+    # set
+    if args.key not in {"provider", "model", "endpoint"}:
+        print(f"Unknown config key: {terminal_safe(str(args.key))}", file=sys.stderr)
+        return 2
+    if args.key == "provider" and args.value not in VALID_PROVIDERS:
+        print(
+            f"provider must be one of: {', '.join(sorted(VALID_PROVIDERS))}",
+            file=sys.stderr,
+        )
+        return 2
+    cfg = load_config(path)
+    setattr(cfg, args.key, args.value)
+    save_config(path, cfg)
+    print(f"{args.key} = {terminal_safe(str(args.value))}")
+    return 0
+
+
+def _cmd_models(args: argparse.Namespace) -> int:
+    cfg = load_config(config_path_for(Path(args.store)))
+    if args.action == "list":
+        recommended = pick_default(detect_gpu())
+        try:
+            installed = set(ollama_installed(cfg.endpoint))
+        except Exception:
+            installed = set()
+        for tier in TIERS:
+            flags = []
+            if tier.default == recommended:
+                flags.append("recommended")
+            if tier.default in installed:
+                flags.append("installed")
+            suffix = f"  [{', '.join(flags)}]" if flags else ""
+            print(f"{tier.name:6} {tier.default}{suffix}")
+        return 0
+    if args.action == "show":
+        gpu = detect_gpu()
+        print(f"gpu: {gpu.backend} budget={gpu.budget_mb}MB")
+        print(f"recommended: {pick_default(gpu)}")
+        print(f"configured model: {cfg.model}")
+        return 0
+    # pull
+    tag = args.tag or pick_default(detect_gpu())
+    if not args.yes:
+        answer = input(f"Pull {tag!r} via Ollama? This downloads several GB. [y/N] ")
+        if answer.strip().lower() not in {"y", "yes"}:
+            print(f"Skipped. To pull manually: ollama pull {tag}")
+            return 0
+    ollama_pull(cfg.endpoint, tag)
+    print(f"Pulled {terminal_safe(tag)}")
     return 0
 
 
@@ -299,6 +393,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ask.set_defaults(func=_cmd_ask)
 
+    for provider_sub in (p_ask,):
+        provider_sub.add_argument(
+            "--provider", help="Override the configured provider (ollama|anthropic|fake)."
+        )
+        provider_sub.add_argument(
+            "--model", help="Override the configured model tag."
+        )
+
     p_suggest = sub.add_parser(
         "suggest",
         help="Suggest inferred links between semantically-close, unlinked notes -> _inbox.md.",
@@ -324,7 +426,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicitly replace an existing regular _inbox.md; symlinks are always refused.",
     )
+    p_suggest.add_argument(
+        "--provider", help="Override the configured provider for --rationale."
+    )
+    p_suggest.add_argument(
+        "--model", help="Override the configured model tag for --rationale."
+    )
     p_suggest.set_defaults(func=_cmd_suggest)
+
+    p_config = sub.add_parser("config", help="Show or set provider/model config.")
+    p_config.add_argument("action", choices=["show", "set", "path"])
+    p_config.add_argument("key", nargs="?", help="Config key for `set`.")
+    p_config.add_argument("value", nargs="?", help="Config value for `set`.")
+    p_config.add_argument("--store", default=DEFAULT_STORE)
+    p_config.set_defaults(func=_cmd_config)
+
+    p_models = sub.add_parser("models", help="List/inspect/pull local models.")
+    p_models.add_argument("action", choices=["list", "show", "pull"])
+    p_models.add_argument("tag", nargs="?", help="Model tag for `pull`.")
+    p_models.add_argument(
+        "--yes", action="store_true", help="Skip the pull confirmation."
+    )
+    p_models.add_argument("--store", default=DEFAULT_STORE)
+    p_models.set_defaults(func=_cmd_models)
 
     return parser
 

@@ -14,7 +14,7 @@ def test_cli_index_reports_edges(sample_vault, tmp_path, monkeypatch, capsys):
 
 def test_cli_ask_uses_graph_by_default(sample_vault, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
-    monkeypatch.setattr(cli, "make_llm", lambda: FakeLLM(response="ans [1]"))
+    monkeypatch.setattr(cli, "make_llm", lambda *a, **k: FakeLLM(response="ans [1]"))
     idx = tmp_path / "idx"
     cli.main(["index", str(sample_vault), "--store", str(idx)])
     capsys.readouterr()
@@ -28,7 +28,7 @@ def test_cli_ask_uses_graph_by_default(sample_vault, tmp_path, monkeypatch, caps
 
 def test_cli_ask_no_graph_flag_runs(sample_vault, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
-    monkeypatch.setattr(cli, "make_llm", lambda: FakeLLM(response="pure vector answer"))
+    monkeypatch.setattr(cli, "make_llm", lambda *a, **k: FakeLLM(response="pure vector answer"))
     idx = tmp_path / "idx"
     cli.main(["index", str(sample_vault), "--store", str(idx)])
     capsys.readouterr()

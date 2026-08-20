@@ -6,7 +6,7 @@ from weft.llm import FakeLLM
 def test_cli_index_then_ask(sample_vault, tmp_path, monkeypatch, capsys):
     # Force the fake backends so the test needs no model download / API key.
     monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
-    monkeypatch.setattr(cli, "make_llm", lambda: FakeLLM(response="Coffee is brewed [1]."))
+    monkeypatch.setattr(cli, "make_llm", lambda *a, **k: FakeLLM(response="Coffee is brewed [1]."))
 
     idx = tmp_path / "weft_index"
 
@@ -27,7 +27,7 @@ def test_cli_index_then_ask(sample_vault, tmp_path, monkeypatch, capsys):
 
 def test_cli_ask_missing_index_errors(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
-    monkeypatch.setattr(cli, "make_llm", lambda: FakeLLM(response="x"))
+    monkeypatch.setattr(cli, "make_llm", lambda *a, **k: FakeLLM(response="x"))
     rc = cli.main(["ask", "q", "--store", str(tmp_path / "nope")])
     assert rc == 1
     assert "No index" in capsys.readouterr().err
