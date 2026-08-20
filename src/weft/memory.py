@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
+
 from weft.security import UnsafeWriteError, secure_append_json, secure_write_text
 
 SEMANTIC_TYPES = {"preference", "fact", "decision", "task"}
@@ -148,3 +150,26 @@ class MemoryStore:
 
     def episodes(self) -> list[Episode]:
         return [Episode(**rec) for rec in _read_jsonl(self._episodes_path)]
+
+    # --- recall -----------------------------------------------------------
+    def _episode_line(self, ep: Episode) -> str:
+        return f'on {ep.ts[:10]} you asked "{ep.question}" — answered "{ep.answer[:200]}"'
+
+    def recall(self, embedder, query: str, k: int, *, kinds: set[str]) -> list[MemoryHit]:
+        if k <= 0:
+            return []
+        candidates: list[tuple[str, str]] = []  # (kind, text)
+        for item in self.active_semantic():
+            if item.type in kinds:
+                candidates.append((item.type, item.text))
+        if "log" in kinds:
+            for ep in self.episodes():
+                candidates.append(("log", self._episode_line(ep)))
+        if not candidates:
+            return []
+        texts = [t for _, t in candidates]
+        vecs = np.asarray(embedder.embed(texts), dtype=np.float32)
+        qv = np.asarray(embedder.embed([query])[0], dtype=np.float32)
+        scores = vecs @ qv   # embedder returns unit-norm vectors -> cosine
+        order = np.argsort(-scores)[:k]
+        return [MemoryHit(float(scores[i]), candidates[i][0], candidates[i][1]) for i in order]
