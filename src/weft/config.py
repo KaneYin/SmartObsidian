@@ -21,6 +21,7 @@ class ResolvedConfig:
     model: str = "auto"
     endpoint: str = DEFAULT_ENDPOINT
     params: dict = field(default_factory=lambda: {"temperature": 0.2, "num_ctx": 8192})
+    fallback: list[str] = field(default_factory=list)
 
 
 def config_path_for(store_path: Path) -> Path:
@@ -39,6 +40,7 @@ def load_config(path: Path) -> ResolvedConfig:
         model=str(data.get("model", default.model)),
         endpoint=str(data.get("endpoint", default.endpoint)),
         params=dict(data.get("params", default.params)),
+        fallback=list(data.get("fallback", [])),
     )
 
 
@@ -56,7 +58,9 @@ def env_overrides(env: dict) -> dict:
 
 def merge(cfg: ResolvedConfig, *overrides: dict) -> ResolvedConfig:
     """Apply override dicts in order (later wins), skipping falsy values."""
-    provider, model, endpoint, params = cfg.provider, cfg.model, cfg.endpoint, dict(cfg.params)
+    provider, model, endpoint = cfg.provider, cfg.model, cfg.endpoint
+    params = dict(cfg.params)
+    fallback = list(cfg.fallback)
     for layer in overrides:
         if layer.get("provider"):
             provider = layer["provider"]
@@ -66,14 +70,19 @@ def merge(cfg: ResolvedConfig, *overrides: dict) -> ResolvedConfig:
             endpoint = layer["endpoint"]
         if layer.get("params"):
             params.update(layer["params"])
-    return ResolvedConfig(provider=provider, model=model, endpoint=endpoint, params=params)
+        if layer.get("fallback"):
+            fallback = list(layer["fallback"])
+    return ResolvedConfig(provider=provider, model=model, endpoint=endpoint,
+                          params=params, fallback=fallback)
 
 
 def _to_toml(cfg: ResolvedConfig) -> str:
+    fallback_rendered = ", ".join(f'"{p}"' for p in cfg.fallback)
     lines = [
         f'provider = "{cfg.provider}"',
         f'model = "{cfg.model}"',
         f'endpoint = "{cfg.endpoint}"',
+        f"fallback = [{fallback_rendered}]",
         "",
         "[params]",
     ]

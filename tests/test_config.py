@@ -34,3 +34,21 @@ def test_precedence_cli_over_env_over_file():
 def test_config_path_is_beside_store():
     assert config_path_for("/x/.weft/index").name == "config.toml"
     assert config_path_for("/x/.weft/index").parent.name == ".weft"
+
+
+def test_fallback_defaults_empty(tmp_path):
+    cfg = load_config(tmp_path / "config.toml")
+    assert cfg.fallback == []
+
+
+def test_fallback_roundtrips(tmp_path):
+    path = tmp_path / "config.toml"
+    save_config(path, ResolvedConfig(provider="ollama", fallback=["anthropic", "openai"]))
+    cfg = load_config(path)
+    assert cfg.fallback == ["anthropic", "openai"]
+
+
+def test_merge_preserves_fallback():
+    base = ResolvedConfig(provider="ollama", fallback=["anthropic"])
+    merged = merge(base, {"model": "x"})
+    assert merged.fallback == ["anthropic"]
