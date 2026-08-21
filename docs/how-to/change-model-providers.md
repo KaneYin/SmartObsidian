@@ -14,12 +14,12 @@ governs the LLM reasoning call.
 |----------|------------|-----------|-------|
 | `ollama` | Local open-weight models via [Ollama](https://ollama.com) | Your machine's GPU | Ollama installed + a pulled model |
 | `anthropic` | Claude API (default model `claude-opus-4-8`) | Anthropic's servers | `ANTHROPIC_API_KEY` in the environment |
+| `openai` | Any OpenAI-compatible endpoint | Remote API **or** local server | `endpoint` + explicit `model`; key for remote |
 | `fake` | Deterministic stub | In-process | Nothing (testing/offline demos) |
 
-> `openai` (an OpenAI-compatible endpoint for remote APIs and local servers such as
-> LM Studio / vLLM) is a reserved provider name planned for M5.1. `weft config set
-> provider openai` is accepted today, but running `ask` will fail until it ships —
-> use `ollama` or `anthropic` for now.
+> `openai` targets any OpenAI-compatible endpoint — remote (OpenAI, Groq,
+> OpenRouter) or a local server (LM Studio, vLLM, llama.cpp-server). Point
+> `endpoint` at the base URL (including `/v1`) and set an explicit `model`.
 
 ## Where the choice comes from (precedence)
 
@@ -82,6 +82,35 @@ uv run weft config set model auto          # 'auto' uses claude-opus-4-8
 uv run weft ask "summarize my decisions about the release"
 ```
 
+### To an OpenAI-compatible endpoint
+
+```bash
+uv run weft config set provider openai
+uv run weft config set endpoint https://api.openai.com/v1   # or a local server URL
+uv run weft config set model gpt-4o-mini                    # explicit; `auto` is rejected
+export OPENAI_API_KEY=sk-...                                # not needed for local hosts
+uv run weft ask "..."
+```
+
+A local server (LM Studio / vLLM on `localhost`) needs no key and logs as
+`left_machine: false`; a remote endpoint logs as `left_machine: true`. Only
+`temperature`, `top_p`, and `max_tokens` from `[params]` are forwarded.
+
+## Configure an opt-in fallback
+
+By default Weft **fails fast** when the chosen provider is unavailable. You can opt
+in to a fallback chain (tried in order); it stays off unless you set it:
+
+```bash
+uv run weft config set fallback anthropic          # or: anthropic,openai
+uv run weft config show                             # shows the fallback list
+```
+
+If the primary is a local provider and a fallback sends content to a remote API,
+Weft prints a one-line notice before the call and records `left_machine: true` in
+the audit log. Fallback providers use their own default model (not the primary's).
+Clear it with `weft config set fallback ""`.
+
 ## Override for a single command
 
 The `--provider` / `--model` flags change the backend for just that invocation
@@ -143,7 +172,8 @@ Weft **fails fast with an actionable message** and never silently switches provi
 | `Ollama not reachable at http://localhost:11434 …` | Start Ollama: `ollama serve`, or switch: `weft config set provider anthropic`. |
 | `Model 'llama3.1:8b' is not installed — run 'weft models pull llama3.1:8b'` | Pull it: `uv run weft models pull` (or the exact tag). |
 | `ANTHROPIC_API_KEY is not set …` | `export ANTHROPIC_API_KEY=sk-ant-...`, or switch to `ollama`. |
-| `Unknown provider 'openai' …` | Not wired yet (M5.1). Use `ollama` or `anthropic`. |
+| `openai needs an explicit model …` | Set one: `weft config set model gpt-4o-mini`. |
+| `OPENAI_API_KEY is not set for remote endpoint …` | `export OPENAI_API_KEY=…`, or use a local endpoint. |
 | `provider must be one of: anthropic, fake, ollama, openai` | Typo in `weft config set provider <x>`. |
 
 For `--rationale` and `memory suggest --llm`, an unavailable provider does **not**
