@@ -42,3 +42,33 @@ def test_cli_override_selects_provider(tmp_path):
     save_config(tmp_path / "config.toml", ResolvedConfig(provider="anthropic"))
     llm = resolve_llm({"provider": "fake"}, store_path=tmp_path / "index", env={})
     assert llm.provider == "fake"
+
+
+def test_openai_available_with_model_and_key(tmp_path):
+    save_config(tmp_path / "config.toml", ResolvedConfig(
+        provider="openai", model="gpt-4o-mini", endpoint="https://api.openai.com/v1"))
+    llm = resolve_llm({}, store_path=tmp_path / "index", env={"OPENAI_API_KEY": "sk-x"})
+    assert llm.provider == "openai" and llm.model == "gpt-4o-mini"
+
+
+def test_openai_auto_model_fails_fast(tmp_path):
+    save_config(tmp_path / "config.toml", ResolvedConfig(
+        provider="openai", model="auto", endpoint="https://api.openai.com/v1"))
+    with pytest.raises(ProviderUnavailable) as exc:
+        resolve_llm({}, store_path=tmp_path / "index", env={"OPENAI_API_KEY": "sk-x"})
+    assert "explicit model" in str(exc.value)
+
+
+def test_openai_remote_requires_key(tmp_path):
+    save_config(tmp_path / "config.toml", ResolvedConfig(
+        provider="openai", model="gpt-4o-mini", endpoint="https://api.openai.com/v1"))
+    with pytest.raises(ProviderUnavailable) as exc:
+        resolve_llm({}, store_path=tmp_path / "index", env={})
+    assert "OPENAI_API_KEY" in str(exc.value)
+
+
+def test_openai_local_needs_no_key(tmp_path):
+    save_config(tmp_path / "config.toml", ResolvedConfig(
+        provider="openai", model="local-model", endpoint="http://localhost:1234/v1"))
+    llm = resolve_llm({}, store_path=tmp_path / "index", env={})
+    assert llm.provider == "openai" and llm.left_machine is False
