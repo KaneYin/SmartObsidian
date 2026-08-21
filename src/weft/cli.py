@@ -53,10 +53,22 @@ def make_embedder() -> Embedder:
     return SentenceTransformerEmbedder()
 
 
+def _fallback_notice(primary: str, chosen: str, crossed: bool) -> None:
+    if crossed:
+        print(
+            f"falling back to {chosen} — this sends note content off your machine "
+            f"(configured in fallback).",
+            file=sys.stderr,
+        )
+    else:
+        print(f"primary {primary} unavailable; using fallback {chosen}.", file=sys.stderr)
+
+
 def make_llm(overrides: dict, store_path: Path) -> LLMClient:
     """Resolve the configured provider into a raw LLM client. The caller wraps
     it in AuditedLLM. Raises ProviderUnavailable with an actionable remedy."""
-    return resolve_llm(overrides, store_path=store_path, env=dict(os.environ))
+    return resolve_llm(overrides, store_path=store_path, env=dict(os.environ),
+                       on_fallback=_fallback_notice)
 
 
 def make_memory(store_path: Path) -> MemoryStore:
@@ -394,21 +406,32 @@ def _cmd_config(args: argparse.Namespace) -> int:
     if args.action == "show":
         cfg = load_config(path)
         print(f"provider = {cfg.provider}\nmodel = {cfg.model}\nendpoint = {cfg.endpoint}")
+        print(f"fallback = {', '.join(cfg.fallback) or '(none)'}")
         return 0
     if args.action == "path":
         print(path)
         return 0
     # set
-    if args.key not in {"provider", "model", "endpoint"}:
+    if args.key not in {"provider", "model", "endpoint", "fallback"}:
         print(f"Unknown config key: {terminal_safe(str(args.key))}", file=sys.stderr)
         return 2
+    cfg = load_config(path)
+    if args.key == "fallback":
+        entries = [v.strip() for v in (args.value or "").split(",") if v.strip()]
+        bad = [e for e in entries if e not in VALID_PROVIDERS]
+        if bad:
+            print(f"unknown provider(s) in fallback: {', '.join(bad)}", file=sys.stderr)
+            return 2
+        cfg.fallback = entries
+        save_config(path, cfg)
+        print(f"fallback = {', '.join(entries) or '(none)'}")
+        return 0
     if args.key == "provider" and args.value not in VALID_PROVIDERS:
         print(
             f"provider must be one of: {', '.join(sorted(VALID_PROVIDERS))}",
             file=sys.stderr,
         )
         return 2
-    cfg = load_config(path)
     setattr(cfg, args.key, args.value)
     save_config(path, cfg)
     print(f"{args.key} = {terminal_safe(str(args.value))}")
