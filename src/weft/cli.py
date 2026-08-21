@@ -37,6 +37,7 @@ from weft.privacy import DEFAULT_EXCLUDES, PrivacyPolicy
 from weft.proposals import ProposalStore
 from weft.providers import ProviderUnavailable, resolve_llm
 from weft.security import WeftSecurityError, terminal_safe, vault_root
+from weft import service
 from weft.store import VectorStore
 from weft.suggest import LinkSuggestion, infer_links
 
@@ -404,9 +405,10 @@ def _cmd_memory(args: argparse.Namespace) -> int:
 def _cmd_config(args: argparse.Namespace) -> int:
     path = config_path_for(Path(args.store))
     if args.action == "show":
-        cfg = load_config(path)
-        print(f"provider = {cfg.provider}\nmodel = {cfg.model}\nendpoint = {cfg.endpoint}")
-        print(f"fallback = {', '.join(cfg.fallback) or '(none)'}")
+        cfg = service.service_config(Path(args.store))
+        print(f"provider = {cfg['provider']}\nmodel = {cfg['model']}\n"
+              f"endpoint = {cfg['endpoint']}")
+        print(f"fallback = {', '.join(cfg['fallback']) or '(none)'}")
         return 0
     if args.action == "path":
         print(path)
@@ -440,25 +442,22 @@ def _cmd_config(args: argparse.Namespace) -> int:
 
 def _cmd_models(args: argparse.Namespace) -> int:
     cfg = load_config(config_path_for(Path(args.store)))
+    if args.action in ("list", "show"):
+        data = service.service_models(Path(args.store))
     if args.action == "list":
-        recommended = pick_default(detect_gpu())
-        try:
-            installed = set(ollama_installed(cfg.endpoint))
-        except Exception:
-            installed = set()
-        for tier in TIERS:
+        installed = {t["default"] for t in data["tiers"] if t["installed"]}
+        for tier in data["tiers"]:
             flags = []
-            if tier.default == recommended:
+            if tier["default"] == data["recommended"]:
                 flags.append("recommended")
-            if tier.default in installed:
+            if tier["default"] in installed:
                 flags.append("installed")
             suffix = f"  [{', '.join(flags)}]" if flags else ""
-            print(f"{tier.name:6} {tier.default}{suffix}")
+            print(f"{tier['name']:6} {tier['default']}{suffix}")
         return 0
     if args.action == "show":
-        gpu = detect_gpu()
-        print(f"gpu: {gpu.backend} budget={gpu.budget_mb}MB")
-        print(f"recommended: {pick_default(gpu)}")
+        print(f"gpu: {data['gpu']['backend']} budget={data['gpu']['budget_mb']}MB")
+        print(f"recommended: {data['recommended']}")
         print(f"configured model: {cfg.model}")
         return 0
     # pull
