@@ -72,3 +72,55 @@ def test_openai_local_needs_no_key(tmp_path):
         provider="openai", model="local-model", endpoint="http://localhost:1234/v1"))
     llm = resolve_llm({}, store_path=tmp_path / "index", env={})
     assert llm.provider == "openai" and llm.left_machine is False
+
+
+class _StubProvider:
+    def __init__(self, name, ok, left_machine):
+        self.name = name
+        self._ok = ok
+        self._left = left_machine
+
+    def available(self, cfg, env):
+        from weft.providers import Availability
+        return Availability(self._ok, "" if self._ok else f"{self.name} down")
+
+    def build(self, cfg, env):
+        from weft.llm import FakeLLM
+        c = FakeLLM(response="x")
+        c.provider = self.name
+        c.model = "m"
+        c.left_machine = self._left
+        return c
+
+
+def test_fallback_used_when_primary_down(tmp_path, monkeypatch):
+    import weft.providers as P
+    monkeypatch.setitem(P.REGISTRY, "remote_stub", _StubProvider("remote_stub", True, True))
+    monkeypatch.setattr(P, "ollama_ping", lambda endpoint: False)  # primary down
+    save_config(tmp_path / "config.toml",
+                ResolvedConfig(provider="ollama", fallback=["remote_stub"]))
+    events = []
+    llm = resolve_llm({}, store_path=tmp_path / "index", env={},
+                      on_fallback=lambda a, b, crossed: events.append((a, b, crossed)))
+    assert llm.provider == "remote_stub"
+    assert events == [("ollama", "remote_stub", True)]  # local -> remote crossed
+
+
+def test_fallback_local_target_does_not_cross(tmp_path, monkeypatch):
+    import weft.providers as P
+    monkeypatch.setattr(P, "ollama_ping", lambda endpoint: False)
+    save_config(tmp_path / "config.toml",
+                ResolvedConfig(provider="ollama", fallback=["fake"]))
+    events = []
+    llm = resolve_llm({}, store_path=tmp_path / "index", env={},
+                      on_fallback=lambda a, b, crossed: events.append((a, b, crossed)))
+    assert llm.provider == "fake"
+    assert events == [("ollama", "fake", False)]
+
+
+def test_empty_fallback_still_fails_fast(tmp_path, monkeypatch):
+    import weft.providers as P
+    monkeypatch.setattr(P, "ollama_ping", lambda endpoint: False)
+    save_config(tmp_path / "config.toml", ResolvedConfig(provider="ollama", fallback=[]))
+    with pytest.raises(ProviderUnavailable):
+        resolve_llm({}, store_path=tmp_path / "index", env={})

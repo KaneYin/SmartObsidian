@@ -121,15 +121,43 @@ REGISTRY: dict[str, Provider] = {
 }
 
 
-def resolve_llm(overrides: dict, *, store_path: Path, env: dict) -> LLMClient:
+_LOCAL_PROVIDERS = {"ollama", "fake"}
+
+
+def _is_local_provider(name: str, cfg: ResolvedConfig) -> bool:
+    if name == "openai":
+        return is_local_endpoint(cfg.endpoint)
+    return name in _LOCAL_PROVIDERS
+
+
+def _fallback_cfg(cfg: ResolvedConfig, name: str) -> ResolvedConfig:
+    """A fallback provider uses its own defaults, not the primary's model/endpoint."""
+    from weft.config import DEFAULT_ENDPOINT
+    return ResolvedConfig(provider=name, model="auto", endpoint=DEFAULT_ENDPOINT,
+                          params=dict(cfg.params))
+
+
+def resolve_llm(overrides: dict, *, store_path: Path, env: dict,
+                on_fallback=None) -> LLMClient:
     cfg = load_config(config_path_for(store_path))
     cfg = merge(cfg, env_overrides(env), overrides)
-    provider = REGISTRY.get(cfg.provider)
-    if provider is None:
-        raise ProviderUnavailable(
-            f"Unknown provider {cfg.provider!r}. Choose one of: "
-            f"{', '.join(sorted(REGISTRY))}.")
-    avail = provider.available(cfg, env)
-    if not avail.ok:
-        raise ProviderUnavailable(avail.remedy)
-    return provider.build(cfg, env)
+    order = [cfg.provider] + [p for p in cfg.fallback if p != cfg.provider]
+
+    remedies: list[str] = []
+    for i, name in enumerate(order):
+        provider = REGISTRY.get(name)
+        if provider is None:
+            remedies.append(f"unknown provider {name!r}")
+            continue
+        use_cfg = cfg if i == 0 else _fallback_cfg(cfg, name)
+        avail = provider.available(use_cfg, env)
+        if not avail.ok:
+            remedies.append(avail.remedy)
+            continue
+        client = provider.build(use_cfg, env)
+        if i > 0 and on_fallback is not None:
+            crossed = _is_local_provider(order[0], cfg) and bool(
+                getattr(client, "left_machine", True))
+            on_fallback(order[0], name, crossed)
+        return client
+    raise ProviderUnavailable(" ; ".join(remedies))
