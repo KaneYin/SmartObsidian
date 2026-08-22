@@ -7,6 +7,9 @@ def test_cli_index_then_ask(sample_vault, tmp_path, monkeypatch, capsys):
     # Force the fake backends so the test needs no model download / API key.
     monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
     monkeypatch.setattr(cli, "make_llm", lambda *a, **k: FakeLLM(response="Coffee is brewed [1]."))
+    monkeypatch.setattr("weft.service.make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr("weft.service.make_llm",
+                        lambda *a, **k: FakeLLM(response="Coffee is brewed [1]."))
 
     idx = tmp_path / "weft_index"
 

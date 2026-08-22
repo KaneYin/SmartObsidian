@@ -111,3 +111,26 @@ def service_memory_accept(store_path: Path, prop_id: str) -> dict:
 def service_memory_reject(store_path: Path, prop_id: str) -> dict:
     make_proposals(Path(store_path)).mark(prop_id, "rejected")  # KeyError if absent
     return {"rejected": prop_id}
+
+
+def service_ask(store_path: Path, question: str, k: int = 5, *,
+                use_graph: bool = True, use_memory: bool = True,
+                overrides: dict | None = None) -> dict:
+    from weft.agent import ask  # local import keeps langgraph off the read path
+    if not isinstance(k, int) or not (1 <= k <= MAX_K):
+        raise ValueError(f"k must be between 1 and {MAX_K}")
+    if not question or not str(question).strip():
+        raise ValueError("question must not be empty")
+    sp = Path(store_path)
+    if not sp.with_suffix(".npz").exists():
+        raise ValueError("no index; run `weft index <vault>` first")
+    store = VectorStore.load(sp)
+    graph = None
+    if use_graph:
+        gpath = graph_path_for(sp)
+        graph = LinkGraph.load(gpath) if gpath.exists() else None
+    raw = make_llm(overrides or {}, sp)         # may raise ProviderUnavailable
+    llm = AuditedLLM(raw, sp.parent / "api-log.jsonl", "ask")
+    memory = make_memory(sp) if use_memory else None
+    result = ask(question, make_embedder(), store, llm, k=k, graph=graph, memory=memory)
+    return {"answer": result.answer, "sources": list(result.sources)}

@@ -147,8 +147,6 @@ def _cmd_index(args: argparse.Namespace) -> int:
 
 
 def _cmd_ask(args: argparse.Namespace) -> int:
-    from weft.agent import ask  # local import: keeps langgraph out of `index` path
-
     store_path = Path(args.store)
     if not store_path.with_suffix(".npz").exists():
         print(
@@ -156,30 +154,20 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-
-    store = VectorStore.load(store_path)
-
-    link_graph = None
-    if not args.no_graph:
-        gpath = graph_path_for(store_path)
-        if gpath.exists():
-            link_graph = LinkGraph.load(gpath)
-
     try:
-        raw_llm = make_llm(_llm_overrides(args), store_path)
-    except ProviderUnavailable as exc:
+        data = service.service_ask(
+            store_path, args.question, k=args.k,
+            use_graph=not args.no_graph, use_memory=not args.no_memory,
+            overrides=_llm_overrides(args),
+        )
+    except (ProviderUnavailable, ValueError) as exc:
         print(terminal_safe(exc), file=sys.stderr)
         return 1
-    llm = AuditedLLM(raw_llm, store_path.parent / "api-log.jsonl", "ask")
-    memory = None if args.no_memory else make_memory(store_path)
-    result = ask(
-        args.question, make_embedder(), store, llm, k=args.k, graph=link_graph, memory=memory
-    )
 
-    print(terminal_safe(result.answer))
-    if result.sources:
+    print(terminal_safe(data["answer"]))
+    if data["sources"]:
         print("\nSources:")
-        for s in result.sources:
+        for s in data["sources"]:
             print(f"  - {terminal_safe(s)}")
     return 0
 
