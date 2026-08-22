@@ -144,3 +144,8 @@ def test_ask_round_trip(server, monkeypatch):
     assert status == 200
     data = json.loads(body)
     assert data["answer"] == "hi [1]" and data["sources"] == ["n.md"]
+
+
+def test_serve_rejects_non_loopback_host():
+    with pytest.raises(ValueError):
+        WeftHTTPServer(("0.0.0.0", 0), "/tmp/x/.weft/index", "tok")

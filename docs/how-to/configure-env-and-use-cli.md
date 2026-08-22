@@ -329,6 +329,28 @@ uv run weft memory mirror --vault "/path/to/Vault"   # writes read-only _memory.
 `--limit` bounds proposals per run. Rejected proposals are tombstoned so `suggest`
 does not repeat them.
 
+## Serve the local API (for a GUI)
+
+Weft can expose its read + memory operations over a loopback HTTP API that a local
+GUI can call:
+
+```bash
+uv run weft serve            # http://127.0.0.1:8765
+```
+
+It binds `127.0.0.1` only, validates the `Host`/`Origin` headers, and requires a
+bearer token stored at `.weft/api-token` (mode `0600`) — send it as
+`Authorization: Bearer <token>`. Endpoints: `GET /health`, `POST /ask`,
+`GET /memory`, `GET /memory/pending`, `POST /memory/remember|accept|reject`,
+`GET /config`, `GET /models`. Indexing and configuration stay in the CLI. Example:
+
+```bash
+TOKEN=$(cat .weft/api-token)
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8765/health
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"question":"what did I decide about X?"}' http://127.0.0.1:8765/ask
+```
+
 ## Generated files and permissions
 
 The default store contains:
@@ -343,6 +365,7 @@ The default store contains:
 .weft/config.toml           # provider/model/endpoint selection (non-secret)
 .weft/memory.jsonl          # durable semantic memory (0600)
 .weft/episodes.jsonl        # episodic interaction log (0600)
+.weft/api-token             # bearer token for `weft serve` (0600)
 .weft/memory-proposals.jsonl # inferred-memory proposals awaiting accept/reject (0600)
 ```
 

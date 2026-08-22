@@ -456,6 +456,27 @@ def _cmd_models(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from weft.api import WeftHTTPServer, load_or_create_token
+    store_path = Path(args.store)
+    if args.host not in ("127.0.0.1", "::1", "localhost"):
+        print("--host must be a loopback address (127.0.0.1, ::1, localhost)",
+              file=sys.stderr)
+        return 2
+    token = load_or_create_token(store_path)
+    server = WeftHTTPServer((args.host, args.port), store_path, token)
+    host, port = server.server_address[0], server.server_address[1]
+    print(f"Weft API on http://{host}:{port}  (token in "
+          f"{terminal_safe(store_path.parent / 'api-token')})")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopping", file=sys.stderr)
+    finally:
+        server.server_close()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="weft", description="Local-first agent over your Obsidian vault."
@@ -606,6 +627,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_memory.add_argument("--model", help="Model override for --llm.")
     p_memory.add_argument("--store", default=DEFAULT_STORE)
     p_memory.set_defaults(func=_cmd_memory)
+
+    p_serve = sub.add_parser("serve", help="Run the local HTTP API for a GUI.")
+    p_serve.add_argument("--host", default="127.0.0.1",
+                         help="Loopback host (default 127.0.0.1).")
+    p_serve.add_argument("--port", type=_bounded_int("port", 1, 65535), default=8765,
+                         help="Port (default 8765).")
+    p_serve.add_argument("--store", default=DEFAULT_STORE)
+    p_serve.set_defaults(func=_cmd_serve)
 
     return parser
 
