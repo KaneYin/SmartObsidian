@@ -467,7 +467,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     server = WeftHTTPServer((args.host, args.port), store_path, token)
     host, port = server.server_address[0], server.server_address[1]
     print(f"Weft API on http://{host}:{port}  (token in "
-          f"{terminal_safe(store_path.parent / 'api-token')})")
+          f"{terminal_safe(store_path.parent / 'api-token')})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
