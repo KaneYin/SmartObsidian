@@ -46,3 +46,20 @@ def test_ask_without_memory_is_unchanged(tmp_path):
     llm = FakeLLM(response="ans")
     result = ask("how is coffee made?", emb, store, llm, k=1)
     assert result.answer == "ans"
+
+
+def test_build_prompt_includes_conversation():
+    import json
+    from weft.agent import build_prompt
+    convo = [{"role": "user", "text": "first"}, {"role": "assistant", "text": "reply"}]
+    prompt = build_prompt("why?", [], memory=None, conversation=convo)
+    payload = json.loads(prompt)
+    assert payload["conversation"] == convo
+    assert payload["question"] == "why?"
+
+
+def test_build_prompt_omits_conversation_when_empty():
+    import json
+    from weft.agent import build_prompt
+    payload = json.loads(build_prompt("q", []))
+    assert "conversation" not in payload
