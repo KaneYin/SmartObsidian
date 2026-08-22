@@ -71,3 +71,76 @@ class ChatSession:
 
     def reset(self) -> None:
         self.history = []
+
+
+_HELP = (
+    "Commands: /help, /exit (/quit), /reset, /sources, "
+    "/remember [--type preference|fact|decision|task] <text>. "
+    "Anything else is a question."
+)
+
+
+def _parse_remember(rest: str) -> tuple[str, str]:
+    """Parse the text after `/remember` into (type, text). Defaults type to fact."""
+    rest = rest.strip()
+    if rest.startswith("--type"):
+        toks = rest.split(None, 2)
+        if len(toks) >= 3:
+            return toks[1], toks[2]
+        if len(toks) == 2:
+            return toks[1], ""
+        return "fact", ""
+    return "fact", rest
+
+
+def run_repl(session: "ChatSession", read=None, emit=None) -> int:
+    read = read or input
+    emit = emit or print
+    emit("Weft chat — /help for commands, /exit to quit.")
+    while True:
+        try:
+            line = read("> ")
+        except EOFError:
+            break
+        line = line.strip()
+        if not line:
+            continue
+        if line in ("/exit", "/quit"):
+            break
+        if line == "/help":
+            emit(_HELP)
+            continue
+        if line == "/reset":
+            session.reset()
+            emit("(conversation cleared)")
+            continue
+        if line == "/sources":
+            if session.last_sources:
+                for src in session.last_sources:
+                    emit(f"  - {src}")
+            else:
+                emit("(no sources yet)")
+            continue
+        if line.startswith("/remember"):
+            typ, text = _parse_remember(line[len("/remember"):])
+            if not text:
+                emit("usage: /remember [--type T] <text>")
+                continue
+            try:
+                item = session.remember(typ, text)
+            except ValueError as exc:
+                emit(str(exc))
+                continue
+            except RuntimeError:
+                emit("memory is disabled (--no-memory)")
+                continue
+            emit(f"remembered [{item.type}] {item.id}")
+            continue
+        if line.startswith("/"):
+            emit(f"unknown command: {line}  (/help)")
+            continue
+        turn = session.send(line)
+        emit(turn.answer)
+        if turn.sources:
+            emit("sources: " + ", ".join(turn.sources))
+    return 0

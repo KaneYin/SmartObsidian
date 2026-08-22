@@ -67,3 +67,40 @@ def test_reset_clears_history():
     s.send("q1")
     s.reset()
     assert s.history == []
+
+
+def _reader(lines):
+    it = iter(lines)
+
+    def read(prompt=""):
+        try:
+            return next(it)
+        except StopIteration:
+            raise EOFError
+    return read
+
+
+def test_run_repl_full_flow(tmp_path):
+    from weft.chat import run_repl
+    emb, store = _store()
+    memory = _memory(tmp_path)
+    s = ChatSession(emb, store, FakeLLM(response="an answer"), memory=memory)
+    out = []
+    rc = run_repl(
+        s,
+        read=_reader(["hello", "/remember --type preference concise", "/reset", "/exit"]),
+        emit=out.append,
+    )
+    assert rc == 0
+    assert "an answer" in "\n".join(out)
+    assert any(i.text == "concise" for i in memory.active_semantic())
+    assert s.history == []
+
+
+def test_run_repl_unknown_command(tmp_path):
+    from weft.chat import run_repl
+    emb, store = _store()
+    s = ChatSession(emb, store, FakeLLM(response="a"))
+    out = []
+    run_repl(s, read=_reader(["/bogus", "/exit"]), emit=out.append)
+    assert any("unknown command" in line for line in out)
