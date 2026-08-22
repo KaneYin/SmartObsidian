@@ -308,14 +308,12 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
 
 
 def _cmd_remember(args: argparse.Namespace) -> int:
-    if args.type not in SEMANTIC_TYPES:
-        print(f"--type must be one of: {', '.join(sorted(SEMANTIC_TYPES))}", file=sys.stderr)
+    try:
+        item = service.service_remember(Path(args.store), args.type, args.text)
+    except ValueError as exc:
+        print(terminal_safe(exc), file=sys.stderr)
         return 2
-    if not args.text or len(args.text) > MAX_MEMORY_TEXT:
-        print(f"memory text must be 1-{MAX_MEMORY_TEXT} characters", file=sys.stderr)
-        return 2
-    item = make_memory(Path(args.store)).remember(args.type, args.text)
-    print(f"remembered [{item.type}] {item.id}: {terminal_safe(item.text)}")
+    print(f"remembered [{item['type']}] {item['id']}: {terminal_safe(item['text'])}")
     return 0
 
 
@@ -325,8 +323,8 @@ def _cmd_memory(args: argparse.Namespace) -> int:
     proposals = make_proposals(store_path)
 
     if args.action == "list":
-        for item in memory.active_semantic():
-            print(f"{item.id}  [{item.type}]  {terminal_safe(item.text)}")
+        for item in service.service_memory_list(store_path)["items"]:
+            print(f"{item['id']}  [{item['type']}]  {terminal_safe(item['text'])}")
         return 0
     if args.action == "show":
         try:
@@ -371,22 +369,20 @@ def _cmd_memory(args: argparse.Namespace) -> int:
               f"(run `weft memory pending` to review)")
         return 0
     if args.action == "pending":
-        for prop in proposals.pending():
-            print(f"{prop.id}  [{prop.type}]  {terminal_safe(prop.text)}")
+        for prop in service.service_memory_pending(store_path)["proposals"]:
+            print(f"{prop['id']}  [{prop['type']}]  {terminal_safe(prop['text'])}")
         return 0
     if args.action == "accept":
         try:
-            prop = proposals.get(args.id)
+            service.service_memory_accept(store_path, args.id)
         except KeyError:
             print(f"no proposal with id {terminal_safe(str(args.id))}", file=sys.stderr)
             return 1
-        memory.remember(prop.type, prop.text, provenance="inferred", source=prop.source)
-        proposals.mark(prop.id, "accepted")
-        print(f"accepted {prop.id} -> memory")
+        print(f"accepted {args.id} -> memory")
         return 0
     if args.action == "reject":
         try:
-            proposals.mark(args.id, "rejected")
+            service.service_memory_reject(store_path, args.id)
         except KeyError:
             print(f"no proposal with id {terminal_safe(str(args.id))}", file=sys.stderr)
             return 1

@@ -37,3 +37,31 @@ def test_service_models_shape(tmp_path):
     m = service_models(store)
     assert "recommended" in m and isinstance(m["tiers"], list)
     assert {"name", "default", "installed"} <= set(m["tiers"][0])
+
+
+def test_service_memory_flow(tmp_path):
+    from weft.service import (service_memory_accept, service_memory_list,
+                              service_memory_pending, service_remember, make_proposals)
+    from weft.proposals import Candidate
+    store = tmp_path / ".weft" / "index"
+    store.parent.mkdir(parents=True, exist_ok=True)
+
+    item = service_remember(store, "preference", "Answer concisely")
+    assert item["id"].startswith("mem_")
+    assert [i["text"] for i in service_memory_list(store)["items"]] == ["Answer concisely"]
+
+    prop = make_proposals(store).add([Candidate("fact", "Recurring interest: x", "heuristic")])[0]
+    assert [p["id"] for p in service_memory_pending(store)["proposals"]] == [prop.id]
+    assert service_memory_accept(store, prop.id) == {"accepted": prop.id}
+    assert any(i["text"] == "Recurring interest: x" for i in service_memory_list(store)["items"])
+
+
+def test_service_remember_validates(tmp_path):
+    import pytest
+    from weft.service import service_remember
+    store = tmp_path / ".weft" / "index"
+    store.parent.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(ValueError):
+        service_remember(store, "bogus", "x")
+    with pytest.raises(ValueError):
+        service_remember(store, "fact", "x" * 3000)

@@ -76,3 +76,38 @@ def service_models(store_path: Path) -> dict:
              for t in TIERS]
     return {"gpu": {"backend": gpu.backend, "budget_mb": gpu.budget_mb},
             "recommended": pick_default(gpu), "tiers": tiers}
+
+
+def service_memory_list(store_path: Path) -> dict:
+    ms = make_memory(Path(store_path))
+    return {"items": [{"id": i.id, "type": i.type, "text": i.text}
+                      for i in ms.active_semantic()]}
+
+
+def service_memory_pending(store_path: Path) -> dict:
+    ps = make_proposals(Path(store_path))
+    return {"proposals": [{"id": p.id, "type": p.type, "text": p.text}
+                          for p in ps.pending()]}
+
+
+def service_remember(store_path: Path, type: str, text: str) -> dict:
+    if type not in SEMANTIC_TYPES:
+        raise ValueError(f"type must be one of: {', '.join(sorted(SEMANTIC_TYPES))}")
+    if not text or len(text) > MAX_MEMORY_TEXT:
+        raise ValueError(f"text must be 1-{MAX_MEMORY_TEXT} characters")
+    item = make_memory(Path(store_path)).remember(type, text)
+    return {"id": item.id, "type": item.type, "text": item.text}
+
+
+def service_memory_accept(store_path: Path, prop_id: str) -> dict:
+    sp = Path(store_path)
+    proposals, memory = make_proposals(sp), make_memory(sp)
+    prop = proposals.get(prop_id)   # raises KeyError if absent
+    memory.remember(prop.type, prop.text, provenance="inferred", source=prop.source)
+    proposals.mark(prop.id, "accepted")
+    return {"accepted": prop.id}
+
+
+def service_memory_reject(store_path: Path, prop_id: str) -> dict:
+    make_proposals(Path(store_path)).mark(prop_id, "rejected")  # KeyError if absent
+    return {"rejected": prop_id}
