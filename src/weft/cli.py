@@ -172,6 +172,33 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_chat(args: argparse.Namespace) -> int:
+    from weft.chat import ChatSession, run_repl
+    store_path = Path(args.store)
+    if not store_path.with_suffix(".npz").exists():
+        print(
+            f"No index at {terminal_safe(args.store)}. Run `weft index <vault>` first.",
+            file=sys.stderr,
+        )
+        return 1
+    store = VectorStore.load(store_path)
+    link_graph = None
+    if not args.no_graph:
+        gpath = graph_path_for(store_path)
+        if gpath.exists():
+            link_graph = LinkGraph.load(gpath)
+    try:
+        raw = service.make_llm(_llm_overrides(args), store_path)
+    except ProviderUnavailable as exc:
+        print(terminal_safe(exc), file=sys.stderr)
+        return 1
+    llm = AuditedLLM(raw, store_path.parent / "api-log.jsonl", "chat")
+    memory = None if args.no_memory else service.make_memory(store_path)
+    session = ChatSession(service.make_embedder(), store, llm,
+                          graph=link_graph, memory=memory, k=args.k)
+    return run_repl(session)
+
+
 def _apply_claude_rationale(suggestions: list[LinkSuggestion], llm: LLMClient) -> None:
     """Opt-in: replace each suggestion's local rationale with a Claude-written
     one-liner, in a single batched pass. Logs the payload sent (privacy is
@@ -627,6 +654,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_memory.add_argument("--model", help="Model override for --llm.")
     p_memory.add_argument("--store", default=DEFAULT_STORE)
     p_memory.set_defaults(func=_cmd_memory)
+
+    p_chat = sub.add_parser("chat", help="Interactive multi-turn chat over your vault.")
+    p_chat.add_argument("--store", default=DEFAULT_STORE)
+    p_chat.add_argument("--k", type=_bounded_int("k", 1, MAX_K), default=5,
+                        help=f"Chunks retrieved per turn (1-{MAX_K}).")
+    p_chat.add_argument("--no-graph", action="store_true",
+                        help="Disable graph-aware retrieval.")
+    p_chat.add_argument("--no-memory", action="store_true",
+                        help="Do not read or write agent memory.")
+    p_chat.add_argument("--provider", help="Override the configured provider.")
+    p_chat.add_argument("--model", help="Override the configured model tag.")
+    p_chat.set_defaults(func=_cmd_chat)
 
     p_serve = sub.add_parser("serve", help="Run the local HTTP API for a GUI.")
     p_serve.add_argument("--host", default="127.0.0.1",

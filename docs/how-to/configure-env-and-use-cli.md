@@ -329,6 +329,22 @@ uv run weft memory mirror --vault "/path/to/Vault"   # writes read-only _memory.
 `--limit` bounds proposals per run. Rejected proposals are tombstoned so `suggest`
 does not repeat them.
 
+## Chat over your notes
+
+`weft chat` is a multi-turn conversation over the indexed vault — follow-ups keep
+context from earlier in the session:
+
+```bash
+uv run weft chat
+```
+
+Each turn retrieves relevant note chunks and injects durable memory; the last few
+turns are carried as context. Commands: `/help`, `/exit` (`/quit`), `/reset` (clear
+the conversation window), `/sources` (last answer's citations), and
+`/remember [--type preference|fact|decision|task] <text>` to save a memory mid-chat.
+Every turn logs an episode, exactly like `weft ask`. Flags mirror `ask`
+(`--k`, `--no-graph`, `--no-memory`, `--provider`, `--model`).
+
 ## Serve the local API (for a GUI)
 
 Weft can expose its read + memory operations over a loopback HTTP API that a local
