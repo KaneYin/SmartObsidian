@@ -77,3 +77,70 @@ def test_unknown_path_404(server):
     status, _ = _get(port, "/nope",
                      {"Host": "127.0.0.1", "Authorization": f"Bearer {token}"})
     assert status == 404
+
+
+def _post(port, path, headers, obj):
+    c = _conn(port)
+    payload = json.dumps(obj)
+    c.request("POST", path, body=payload,
+              headers={**headers, "Content-Type": "application/json"})
+    r = c.getresponse()
+    body = r.read()
+    c.close()
+    return r.status, body
+
+
+def test_remember_then_list(server):
+    _srv, token, port, _store = server
+    h = {"Host": "127.0.0.1", "Authorization": f"Bearer {token}"}
+    status, body = _post(port, "/memory/remember", h, {"type": "fact", "text": "likes tea"})
+    assert status == 200 and json.loads(body)["id"].startswith("mem_")
+    status, body = _get(port, "/memory", h)
+    assert status == 200
+    assert any(i["text"] == "likes tea" for i in json.loads(body)["items"])
+
+
+def test_remember_bad_type_is_400(server):
+    _srv, token, port, _store = server
+    h = {"Host": "127.0.0.1", "Authorization": f"Bearer {token}"}
+    status, _ = _post(port, "/memory/remember", h, {"type": "bogus", "text": "x"})
+    assert status == 400
+
+
+def test_oversized_body_is_400(server):
+    _srv, token, port, _store = server
+    h = {"Host": "127.0.0.1", "Authorization": f"Bearer {token}",
+         "Content-Type": "application/json", "Content-Length": str(2_000_000)}
+    c = _conn(port)
+    c.request("POST", "/ask", body=b"{}", headers=h)
+    r = c.getresponse()
+    r.read()
+    c.close()
+    assert r.status == 400
+
+
+def test_wrong_method_is_405(server):
+    _srv, token, port, _store = server
+    status, _ = _get(port, "/ask", {"Host": "127.0.0.1", "Authorization": f"Bearer {token}"})
+    assert status == 405
+
+
+def test_ask_round_trip(server, monkeypatch):
+    import weft.service as S
+    from weft.embeddings import FakeEmbedder
+    from weft.llm import FakeLLM
+    from weft.store import VectorStore
+    _srv, token, port, store = server
+    emb = FakeEmbedder(dim=16)
+    vs = VectorStore(dim=emb.dim)
+    vs.add(emb.embed(["hello world"])[0],
+           {"rel_path": "n.md", "heading": "H", "text": "hello world",
+            "ordinal": 0, "tags": [], "wikilinks": []})
+    vs.save(store)
+    monkeypatch.setattr(S, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr(S, "make_llm", lambda *a, **k: FakeLLM(response="hi [1]"))
+    h = {"Host": "127.0.0.1", "Authorization": f"Bearer {token}"}
+    status, body = _post(port, "/ask", h, {"question": "hello?", "k": 3})
+    assert status == 200
+    data = json.loads(body)
+    assert data["answer"] == "hi [1]" and data["sources"] == ["n.md"]
