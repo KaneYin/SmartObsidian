@@ -115,14 +115,20 @@ def collect_memory(memory, embedder: Embedder, question: str, k: int = 5) -> dic
 def build_prompt(question: str, hits: list[SearchHit], memory: dict | None = None,
                  conversation: list | None = None) -> str:
     sources: list[dict] = []
-    for i, h in enumerate(hits, start=1):
+    seen_parents: set = set()
+    for h in hits:
         m = h.metadata
+        pid = m.get("parent_id")
+        if pid is not None:
+            if pid in seen_parents:
+                continue
+            seen_parents.add(pid)
         sources.append(
             {
-                "id": i,
+                "id": len(sources) + 1,
                 "path": m["rel_path"],
                 "heading": m["heading"],
-                "content": m["text"],
+                "content": m.get("parent_text") or m["text"],
             }
         )
     payload = {
