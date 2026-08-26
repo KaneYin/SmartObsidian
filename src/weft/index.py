@@ -7,9 +7,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from weft.chunking import chunk_strategy
 from weft.embeddings import Embedder
 from weft.graph import LinkGraph
-from weft.parser import chunk_note, parse_vault
+from weft.parser import parse_vault
 from weft.privacy import PrivacyPolicy
 from weft.security import secure_write_text, vault_root
 from weft.store import VectorStore
@@ -31,19 +32,22 @@ def build_index(
     embedder: Embedder,
     store_path: Path,
     policy: PrivacyPolicy | None = None,
+    chunking: str = "heading",
 ) -> tuple[int, int]:
     """Index every chunk and build the link graph.
     Returns (n_chunks, n_edges)."""
     root = vault_root(vault_path)
     policy = policy or PrivacyPolicy()
     notes = parse_vault(root, policy=policy)
-    pairs = [(note, c) for note in notes for c in chunk_note(note)]
+    strategy = chunk_strategy(chunking)
+    pairs = [(note, c) for note in notes for c in strategy(note)]
 
     store = VectorStore(dim=embedder.dim)
     if pairs:
         vectors = embedder.embed([c.text for _, c in pairs])
-        metadatas = [
-            {
+        metadatas = []
+        for note, c in pairs:
+            meta = {
                 "rel_path": c.rel_path,
                 "heading": c.heading,
                 "text": c.text,
@@ -51,8 +55,11 @@ def build_index(
                 "tags": note.tags,
                 "wikilinks": note.wikilinks,
             }
-            for note, c in pairs
-        ]
+            if c.parent_id is not None:
+                meta["parent_id"] = c.parent_id
+            if c.parent_text is not None:
+                meta["parent_text"] = c.parent_text
+            metadatas.append(meta)
         store.add_batch(vectors, metadatas)
     store.save(Path(store_path))
 
@@ -63,6 +70,7 @@ def build_index(
         "version": 1,
         "vault_root": str(root),
         "privacy": policy.as_dict(),
+        "chunking": chunking,
     }
     secure_write_text(
         manifest_path_for(store_path),
