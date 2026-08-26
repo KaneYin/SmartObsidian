@@ -137,7 +137,8 @@ def _cmd_index(args: argparse.Namespace) -> int:
         redaction_patterns=tuple(args.redact),
     )
     n_chunks, n_edges = build_index(
-        Path(args.vault), make_embedder(), Path(args.store), policy=policy
+        Path(args.vault), make_embedder(), Path(args.store), policy=policy,
+        chunking=args.chunking.replace("-", "_"),
     )
     print(
         f"Indexed {n_chunks} chunks and {n_edges} link edges from "
@@ -541,6 +542,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=_redaction_pattern,
         metavar="REGEX",
         help="Replace matching content with [REDACTED] before embedding (repeatable).",
+    )
+    p_index.add_argument(
+        "--chunking", choices=["heading", "parent-child"], default="heading",
+        help="Chunking strategy: heading (default) or parent-child.",
     )
     p_index.set_defaults(func=_cmd_index)
 

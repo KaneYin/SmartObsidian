@@ -146,6 +146,20 @@ uv run weft index "/path/to/Vault" \
 The store value is a base path; do not add `.npz` or `.json`. The same base path
 must be passed to later `ask` and `suggest` commands.
 
+### Parent/child chunking
+
+For more precise retrieval on long notes, index with parent/child chunking:
+
+```bash
+uv run weft index "/path/to/Vault" --chunking parent-child
+```
+
+This embeds paragraph-sized *children* for precise matching but hands the model the
+whole heading *section* (the parent) for context — de-duplicated, so one section is
+sent once even when several of its paragraphs match. The default `heading` strategy
+is unchanged. The chosen strategy is recorded in `index.manifest.json`; `ask` reads
+the parent context straight from the stored metadata (no extra flags).
+
 ## Ask questions
 
 ```bash

@@ -58,3 +58,15 @@ def test_cli_rejects_privacy_path_traversal_before_indexing(tmp_path, capsys):
 
     assert rc == 2
     assert "relative vault paths" in capsys.readouterr().err
+
+
+def test_cli_index_parent_child(sample_vault, tmp_path, monkeypatch):
+    from weft.embeddings import FakeEmbedder
+    from weft.store import VectorStore
+    monkeypatch.setattr("weft.service.make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
+    idx = tmp_path / "idx"
+    rc = cli.main(["index", str(sample_vault), "--store", str(idx), "--chunking", "parent-child"])
+    assert rc == 0
+    metas = next(iter(VectorStore.load(idx).metadata_by_note().values()))
+    assert "parent_id" in metas[0]
