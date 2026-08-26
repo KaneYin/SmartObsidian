@@ -48,3 +48,11 @@ def test_memory_mirror_excluded_from_indexing(tmp_path):
     rels = {n.rel_path for n in parse_vault(tmp_path)}
     assert "note.md" in rels
     assert "_memory.md" not in rels
+
+
+def test_chunk_parent_fields_default_none():
+    from weft.parser import Chunk
+    c = Chunk(rel_path="a.md", heading="H", text="t")
+    assert c.parent_id is None and c.parent_text is None
+    c2 = Chunk(rel_path="a.md", heading="H", text="t", parent_id="par_x", parent_text="section")
+    assert c2.parent_id == "par_x" and c2.parent_text == "section"

@@ -35,6 +35,8 @@ class Chunk:
     heading: str
     text: str
     ordinal: int = field(default=0)
+    parent_id: str | None = None
+    parent_text: str | None = None
 
 
 def _split_frontmatter(raw: str) -> tuple[dict, str]:
