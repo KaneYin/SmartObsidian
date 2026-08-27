@@ -69,6 +69,10 @@ class VectorStore:
             grouped.setdefault(meta["rel_path"], []).append(vec)
         return {rp: np.vstack(vecs) for rp, vecs in grouped.items()}
 
+    def metadata_rows(self) -> list[dict]:
+        """Chunk metadata in vector-row order (row i is the i-th added chunk)."""
+        return list(self._metadata)
+
     def metadata_by_note(self) -> dict[str, list[dict]]:
         """Chunk metadata grouped by note `rel_path`, preserving insertion
         order so callers can read tags/headings/text per note."""

@@ -101,21 +101,40 @@ def _hit_key(h: SearchHit):
     return m.get("parent_id") or (m["rel_path"], m.get("ordinal", 0))
 
 
+def _vector_ranking(query: str, embedder: Embedder, store: VectorStore,
+                    graph: LinkGraph | None, k: int) -> list[SearchHit]:
+    if graph is not None:
+        return graph_aware_retrieve(query, embedder, store, graph, k=k)
+    return retrieve(query, embedder, store, k=k)
+
+
+def _bm25_ranking(bm25, query: str, store: VectorStore, k: int) -> list[SearchHit]:
+    rows = store.metadata_rows()
+    return [SearchHit(score=s, metadata=rows[i]) for i, s in bm25.search(query, k)]
+
+
+def fused_retrieve(queries: list[str], embedder: Embedder, store: VectorStore, *,
+                   bm25=None, graph: LinkGraph | None = None,
+                   k: int = 5) -> list[SearchHit]:
+    """Run a vector ranking (and a BM25 ranking, when bm25 is given) for each query,
+    then RRF-fuse all rankings. One ranking total -> returned as-is."""
+    rankings: list[list[SearchHit]] = []
+    for q in queries:
+        rankings.append(_vector_ranking(q, embedder, store, graph, k))
+        if bm25 is not None:
+            rankings.append(_bm25_ranking(bm25, q, store, k))
+    if len(rankings) == 1:
+        return rankings[0]
+    return reciprocal_rank_fusion(rankings, key=_hit_key)[:k]
+
+
 def dual_query_retrieve(question: str, context_query, embedder: Embedder,
                         store: VectorStore, *, graph: LinkGraph | None = None,
-                        k: int = 5) -> list[SearchHit]:
-    """Retrieve for the current question and, when present, a reconstructed context
-    query; fuse the two rankings with RRF. context_query None -> single query."""
-    def one(q: str) -> list[SearchHit]:
-        if graph is not None:
-            return graph_aware_retrieve(q, embedder, store, graph, k=k)
-        return retrieve(q, embedder, store, k=k)
-
-    hits_main = one(question)
-    if not context_query:
-        return hits_main
-    hits_ctx = one(context_query)
-    return reciprocal_rank_fusion([hits_main, hits_ctx], key=_hit_key)[:k]
+                        k: int = 5, bm25=None) -> list[SearchHit]:
+    """Fuse the current question and the reconstructed context query (M8), each
+    optionally hybridized with BM25 (M9)."""
+    queries = [question] + ([context_query] if context_query else [])
+    return fused_retrieve(queries, embedder, store, bm25=bm25, graph=graph, k=k)
 
 
 def collect_memory(memory, embedder: Embedder, question: str, k: int = 5) -> dict | None:
@@ -174,17 +193,14 @@ def reason(question: str, hits: list[SearchHit], llm: LLMClient,
 
 
 def build_graph(embedder: Embedder, store: VectorStore, llm: LLMClient,
-                link_graph: LinkGraph | None = None, memory: dict | None = None):
-    """Compile the retrieve -> reason graph. When link_graph is provided, the
-    retrieve node uses graph-aware retrieval; otherwise pure vector."""
+                link_graph: LinkGraph | None = None, memory: dict | None = None,
+                bm25=None):
+    """Compile the retrieve -> reason graph. Retrieval fuses vector (and BM25 when
+    provided) rankings via RRF."""
 
     def _retrieve(state: AgentState) -> AgentState:
-        if link_graph is not None:
-            hits = graph_aware_retrieve(
-                state["question"], embedder, store, link_graph, k=state.get("k", 5)
-            )
-        else:
-            hits = retrieve(state["question"], embedder, store, k=state.get("k", 5))
+        hits = fused_retrieve([state["question"]], embedder, store,
+                              bm25=bm25, graph=link_graph, k=state.get("k", 5))
         return {"hits": hits}
 
     def _reason(state: AgentState) -> AgentState:
@@ -207,9 +223,10 @@ def ask(
     k: int = 5,
     graph: LinkGraph | None = None,
     memory=None,
+    bm25=None,
 ) -> AskResult:
     mem_obj = collect_memory(memory, embedder, question, k=k) if memory is not None else None
-    app = build_graph(embedder, store, llm, link_graph=graph, memory=mem_obj)
+    app = build_graph(embedder, store, llm, link_graph=graph, memory=mem_obj, bm25=bm25)
     final = app.invoke({"question": question, "k": k})
     hits = final.get("hits", [])
     sources: list[str] = []
