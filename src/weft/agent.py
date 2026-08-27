@@ -15,6 +15,7 @@ from weft.embeddings import Embedder
 from weft.fusion import reciprocal_rank_fusion
 from weft.graph import LinkGraph
 from weft.llm import LLMClient
+from weft.rerank import RERANK_POOL
 from weft.store import SearchHit, VectorStore
 
 SYSTEM = (
@@ -194,14 +195,18 @@ def reason(question: str, hits: list[SearchHit], llm: LLMClient,
 
 def build_graph(embedder: Embedder, store: VectorStore, llm: LLMClient,
                 link_graph: LinkGraph | None = None, memory: dict | None = None,
-                bm25=None):
+                bm25=None, reranker=None, rerank_pool: int = RERANK_POOL):
     """Compile the retrieve -> reason graph. Retrieval fuses vector (and BM25 when
-    provided) rankings via RRF."""
+    provided) rankings via RRF, then optionally reranks with a cross-encoder."""
 
     def _retrieve(state: AgentState) -> AgentState:
-        hits = fused_retrieve([state["question"]], embedder, store,
-                              bm25=bm25, graph=link_graph, k=state.get("k", 5))
-        return {"hits": hits}
+        q, k = state["question"], state.get("k", 5)
+        if reranker is not None:
+            pool = fused_retrieve([q], embedder, store, bm25=bm25,
+                                  graph=link_graph, k=rerank_pool)
+            return {"hits": reranker.rerank(q, pool, k)}
+        return {"hits": fused_retrieve([q], embedder, store, bm25=bm25,
+                                       graph=link_graph, k=k)}
 
     def _reason(state: AgentState) -> AgentState:
         return {"answer": reason(state["question"], state["hits"], llm, memory)}
@@ -224,9 +229,12 @@ def ask(
     graph: LinkGraph | None = None,
     memory=None,
     bm25=None,
+    reranker=None,
+    rerank_pool: int = RERANK_POOL,
 ) -> AskResult:
     mem_obj = collect_memory(memory, embedder, question, k=k) if memory is not None else None
-    app = build_graph(embedder, store, llm, link_graph=graph, memory=mem_obj, bm25=bm25)
+    app = build_graph(embedder, store, llm, link_graph=graph, memory=mem_obj,
+                      bm25=bm25, reranker=reranker, rerank_pool=rerank_pool)
     final = app.invoke({"question": question, "k": k})
     hits = final.get("hits", [])
     sources: list[str] = []
