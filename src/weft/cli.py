@@ -196,7 +196,8 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     llm = AuditedLLM(raw, store_path.parent / "api-log.jsonl", "chat")
     memory = None if args.no_memory else service.make_memory(store_path)
     session = ChatSession(service.make_embedder(), store, llm,
-                          graph=link_graph, memory=memory, k=args.k)
+                          graph=link_graph, memory=memory, k=args.k,
+                          rewrite_llm=args.rewrite_llm)
     return run_repl(session)
 
 
@@ -670,6 +671,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Do not read or write agent memory.")
     p_chat.add_argument("--provider", help="Override the configured provider.")
     p_chat.add_argument("--model", help="Override the configured model tag.")
+    p_chat.add_argument(
+        "--rewrite-llm", action="store_true",
+        help="Rewrite the query with the LLM using conversation context (payload-logged).",
+    )
     p_chat.set_defaults(func=_cmd_chat)
 
     p_serve = sub.add_parser("serve", help="Run the local HTTP API for a GUI.")

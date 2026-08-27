@@ -43,3 +43,14 @@ def test_chat_happy_path(tmp_path, monkeypatch, capsys):
     rc = cli.main(["chat", "--store", str(store)])
     assert rc == 0
     assert "chat answer" in capsys.readouterr().out
+
+
+def test_chat_rewrite_llm_flag(tmp_path, monkeypatch, capsys):
+    store = tmp_path / ".weft" / "index"
+    _index(store)
+    monkeypatch.setattr(service, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr(service, "make_llm", lambda *a, **k: FakeLLM(response="chat answer"))
+    monkeypatch.setattr(builtins, "input", _script(["hello", "why?", "/exit"]))
+    rc = cli.main(["chat", "--store", str(store), "--rewrite-llm"])
+    assert rc == 0
+    assert "chat answer" in capsys.readouterr().out

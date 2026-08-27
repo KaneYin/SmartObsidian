@@ -359,6 +359,13 @@ the conversation window), `/sources` (last answer's citations), and
 Every turn logs an episode, exactly like `weft ask`. Flags mirror `ask`
 (`--k`, `--no-graph`, `--no-memory`, `--provider`, `--model`).
 
+Follow-ups are contextualized automatically: Weft retrieves for both your latest
+message and the recent conversation, then fuses the two result lists (reciprocal
+rank fusion) — so "why?" still finds what the previous turn was about, without
+blurring the two questions into one embedding. Add `--rewrite-llm` to have the
+provider rewrite the follow-up into a standalone search query instead of the
+heuristic (payload-logged; falls back to the heuristic on failure).
+
 ## Serve the local API (for a GUI)
 
 Weft can expose its read + memory operations over a loopback HTTP API that a local
