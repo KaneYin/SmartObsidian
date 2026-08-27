@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from weft.bm25 import BM25Index
 from weft.chunking import chunk_strategy
 from weft.embeddings import Embedder
 from weft.graph import LinkGraph
@@ -22,6 +23,11 @@ def graph_path_for(store_path: Path) -> Path:
     return Path(str(store_path) + ".graph.json")
 
 
+def bm25_path_for(store_path: Path) -> Path:
+    """`.weft/index` -> `.weft/index.bm25.json` (lexical index beside the vectors)."""
+    return Path(str(store_path) + ".bm25.json")
+
+
 def manifest_path_for(store_path: Path) -> Path:
     """Security metadata bound to an index, including its canonical vault."""
     return Path(str(store_path) + ".manifest.json")
@@ -33,6 +39,7 @@ def build_index(
     store_path: Path,
     policy: PrivacyPolicy | None = None,
     chunking: str = "heading",
+    no_bm25: bool = False,
 ) -> tuple[int, int]:
     """Index every chunk and build the link graph.
     Returns (n_chunks, n_edges)."""
@@ -62,6 +69,9 @@ def build_index(
             metadatas.append(meta)
         store.add_batch(vectors, metadatas)
     store.save(Path(store_path))
+
+    if not no_bm25 and pairs:
+        BM25Index.build([c.text for _, c in pairs]).save(bm25_path_for(store_path))
 
     graph = LinkGraph.from_notes(notes)
     graph.save(graph_path_for(store_path))
