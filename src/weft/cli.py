@@ -160,6 +160,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             store_path, args.question, k=args.k,
             use_graph=not args.no_graph, use_memory=not args.no_memory,
             overrides=_llm_overrides(args), use_hybrid=not args.no_hybrid,
+            rerank=args.rerank,
         )
     except (ProviderUnavailable, ValueError) as exc:
         print(terminal_safe(exc), file=sys.stderr)
@@ -196,9 +197,10 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     llm = AuditedLLM(raw, store_path.parent / "api-log.jsonl", "chat")
     memory = None if args.no_memory else service.make_memory(store_path)
     bm25 = None if args.no_hybrid else service.load_bm25(store_path)
+    reranker = service.make_reranker() if args.rerank else None
     session = ChatSession(service.make_embedder(), store, llm,
                           graph=link_graph, memory=memory, k=args.k,
-                          rewrite_llm=args.rewrite_llm, bm25=bm25)
+                          rewrite_llm=args.rewrite_llm, bm25=bm25, reranker=reranker)
     return run_repl(session)
 
 
@@ -507,6 +509,47 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_benchmark(args: argparse.Namespace) -> int:
+    from weft.benchmarks.crag import CRAGModel
+    from weft.benchmarks.crag_runner import run_crag
+
+    try:
+        model = CRAGModel(
+            store_path=args.store,
+            batch_size=args.batch_size,
+            k=args.k,
+            use_hybrid=not args.no_hybrid,
+            use_reranker=args.reranker,
+            reranker_model=args.reranker_model,
+        )
+        result = run_crag(
+            args.dataset,
+            model,
+            output_path=args.output,
+            limit=args.limit,
+            judge=not args.generation_only,
+            on_progress=lambda count: (
+                print(f"generated {count} CRAG answers", file=sys.stderr)
+                if count % 10 == 0 else None
+            ),
+        )
+    except (OSError, ProviderUnavailable, ValueError) as exc:
+        print(terminal_safe(exc), file=sys.stderr)
+        return 1
+    print(f"CRAG examples: {result['total']}")
+    print(f"Results: {terminal_safe(result['output'])}")
+    if result["judge"]:
+        print("Judge: Ollama local approximation (not an official comparable score)")
+        print(
+            f"Score: {result['score']:.4f}  accuracy: {result['accuracy']:.4f}  "
+            f"hallucination: {result['hallucination']:.4f}  "
+            f"missing: {result['missing']:.4f}"
+        )
+    else:
+        print("Generation only; no score computed")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="weft", description="Local-first agent over your Obsidian vault."
@@ -687,6 +730,10 @@ def build_parser() -> argparse.ArgumentParser:
             "--no-hybrid", action="store_true",
             help="Disable BM25 hybrid fusion; vector-only retrieval.",
         )
+        hybrid_sub.add_argument(
+            "--rerank", action="store_true",
+            help="Rerank the retrieval pool with a cross-encoder (downloads a model).",
+        )
 
     p_serve = sub.add_parser("serve", help="Run the local HTTP API for a GUI.")
     p_serve.add_argument("--host", default="127.0.0.1",
@@ -695,6 +742,35 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Port (default 8765).")
     p_serve.add_argument("--store", default=DEFAULT_STORE)
     p_serve.set_defaults(func=_cmd_serve)
+
+    p_benchmark = sub.add_parser(
+        "benchmark", help="Run an external RAG benchmark with local Ollama."
+    )
+    p_benchmark.add_argument("benchmark", choices=["crag"])
+    p_benchmark.add_argument("dataset", help="CRAG .jsonl or .jsonl.bz2 dataset path.")
+    p_benchmark.add_argument("--output", default=".weft/crag-results.jsonl")
+    p_benchmark.add_argument("--store", default=DEFAULT_STORE,
+                             help="Path used to read Weft's Ollama configuration.")
+    p_benchmark.add_argument("--limit", type=_bounded_int("limit", 1, 1_000_000))
+    p_benchmark.add_argument("--batch-size", type=_bounded_int("batch-size", 1, 16))
+    p_benchmark.add_argument("--k", type=_bounded_int("k", 1, MAX_K), default=8)
+    p_benchmark.add_argument(
+        "--generation-only", action="store_true",
+        help="Generate predictions without the approximate local Ollama judge.",
+    )
+    p_benchmark.add_argument(
+        "--no-hybrid", action="store_true",
+        help="Disable BM25 hybrid fusion in benchmark retrieval.",
+    )
+    p_benchmark.add_argument(
+        "--reranker", action="store_true",
+        help="Enable CrossEncoder reranking stage in benchmark retrieval.",
+    )
+    p_benchmark.add_argument(
+        "--reranker-model", default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        help="CrossEncoder model name for reranking.",
+    )
+    p_benchmark.set_defaults(func=_cmd_benchmark)
 
     return parser
 

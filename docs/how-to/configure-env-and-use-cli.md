@@ -177,6 +177,21 @@ hybrid composes with the follow-up query rewrite: each of the current message an
 the reconstructed context is retrieved by vector *and* BM25, and all rankings are
 fused in a single pass.
 
+### Rerank with a cross-encoder
+
+For maximum precision, add `--rerank` to `ask` or `chat`:
+
+```bash
+uv run weft ask "..." --rerank
+uv run weft chat --rerank
+```
+
+Weft retrieves a larger candidate pool (hybrid + query rewrite) and a cross-encoder
+re-scores each `(query, chunk)` pair, keeping the best `--k`. It downloads a small
+reranker model on first use, then runs offline. It is slower than plain retrieval,
+so it is opt-in. Together the three stages form the pipeline: query rewrite → BM25
+hybrid → cross-encoder rerank.
+
 ## Ask questions
 
 ```bash

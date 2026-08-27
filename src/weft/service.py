@@ -120,9 +120,15 @@ def load_bm25(store_path: Path):
     return BM25Index.load(path) if path.exists() else None
 
 
+def make_reranker():
+    from weft.rerank import CrossEncoderReranker
+    return CrossEncoderReranker()
+
+
 def service_ask(store_path: Path, question: str, k: int = 5, *,
                 use_graph: bool = True, use_memory: bool = True,
-                overrides: dict | None = None, use_hybrid: bool = True) -> dict:
+                overrides: dict | None = None, use_hybrid: bool = True,
+                rerank: bool = False) -> dict:
     from weft.agent import ask  # local import keeps langgraph off the read path
     if not isinstance(k, int) or not (1 <= k <= MAX_K):
         raise ValueError(f"k must be between 1 and {MAX_K}")
@@ -140,6 +146,7 @@ def service_ask(store_path: Path, question: str, k: int = 5, *,
     raw = make_llm(overrides or {}, sp)         # may raise ProviderUnavailable
     llm = AuditedLLM(raw, sp.parent / "api-log.jsonl", "ask")
     memory = make_memory(sp) if use_memory else None
+    reranker = make_reranker() if rerank else None
     result = ask(question, make_embedder(), store, llm, k=k, graph=graph,
-                 memory=memory, bm25=bm25)
+                 memory=memory, bm25=bm25, reranker=reranker)
     return {"answer": result.answer, "sources": list(result.sources)}

@@ -54,3 +54,16 @@ def test_chat_rewrite_llm_flag(tmp_path, monkeypatch, capsys):
     rc = cli.main(["chat", "--store", str(store), "--rewrite-llm"])
     assert rc == 0
     assert "chat answer" in capsys.readouterr().out
+
+
+def test_chat_rerank_flag(tmp_path, monkeypatch, capsys):
+    from weft.rerank import FakeReranker
+    store = tmp_path / ".weft" / "index"
+    _index(store)
+    monkeypatch.setattr(service, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr(service, "make_llm", lambda *a, **k: FakeLLM(response="chat answer"))
+    monkeypatch.setattr(service, "make_reranker", lambda: FakeReranker())
+    monkeypatch.setattr(builtins, "input", _script(["zebra", "/exit"]))
+    rc = cli.main(["chat", "--store", str(store), "--rerank"])
+    assert rc == 0
+    assert "chat answer" in capsys.readouterr().out
