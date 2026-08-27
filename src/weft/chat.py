@@ -33,7 +33,7 @@ class ChatTurn:
 
 class ChatSession:
     def __init__(self, embedder, store, llm, *, graph=None, memory=None,
-                 k: int = 5, window: int = 6, rewrite_llm: bool = False):
+                 k: int = 5, window: int = 6, rewrite_llm: bool = False, bm25=None):
         self._embedder = embedder
         self._store = store
         self._llm = llm
@@ -42,6 +42,7 @@ class ChatSession:
         self._k = k
         self._window = window
         self._rewrite_llm = rewrite_llm
+        self._bm25 = bm25
         self.history: list[dict] = []
         self.last_sources: list[str] = []
 
@@ -59,7 +60,7 @@ class ChatSession:
     def _retrieve(self, question: str):
         return dual_query_retrieve(question, self._context_query(question),
                                    self._embedder, self._store, graph=self._graph,
-                                   k=self._k)
+                                   k=self._k, bm25=self._bm25)
 
     def send(self, question: str) -> ChatTurn:
         hits = self._retrieve(question)

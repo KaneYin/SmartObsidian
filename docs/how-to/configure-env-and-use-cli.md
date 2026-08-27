@@ -160,6 +160,23 @@ sent once even when several of its paragraphs match. The default `heading` strat
 is unchanged. The chosen strategy is recorded in `index.manifest.json`; `ask` reads
 the parent context straight from the stored metadata (no extra flags).
 
+### Hybrid search (BM25 + vectors)
+
+`weft index` also builds a small BM25 lexical index (`.weft/index.bm25.json`).
+Retrieval then fuses the vector ranking and the BM25 ranking with reciprocal rank
+fusion, so exact terms, names, and IDs that embeddings blur are still found.
+
+```bash
+uv run weft index "/path/to/Vault" --no-bm25   # skip building the lexical index
+uv run weft ask "..." --no-hybrid               # disable fusion for one query
+uv run weft chat --no-hybrid
+```
+
+Indexes built before this feature stay vector-only until re-indexed. For chat,
+hybrid composes with the follow-up query rewrite: each of the current message and
+the reconstructed context is retrieved by vector *and* BM25, and all rankings are
+fused in a single pass.
+
 ## Ask questions
 
 ```bash

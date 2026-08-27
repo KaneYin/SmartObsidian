@@ -138,7 +138,7 @@ def _cmd_index(args: argparse.Namespace) -> int:
     )
     n_chunks, n_edges = build_index(
         Path(args.vault), make_embedder(), Path(args.store), policy=policy,
-        chunking=args.chunking.replace("-", "_"),
+        chunking=args.chunking.replace("-", "_"), no_bm25=args.no_bm25,
     )
     print(
         f"Indexed {n_chunks} chunks and {n_edges} link edges from "
@@ -159,7 +159,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         data = service.service_ask(
             store_path, args.question, k=args.k,
             use_graph=not args.no_graph, use_memory=not args.no_memory,
-            overrides=_llm_overrides(args),
+            overrides=_llm_overrides(args), use_hybrid=not args.no_hybrid,
         )
     except (ProviderUnavailable, ValueError) as exc:
         print(terminal_safe(exc), file=sys.stderr)
@@ -195,9 +195,10 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         return 1
     llm = AuditedLLM(raw, store_path.parent / "api-log.jsonl", "chat")
     memory = None if args.no_memory else service.make_memory(store_path)
+    bm25 = None if args.no_hybrid else service.load_bm25(store_path)
     session = ChatSession(service.make_embedder(), store, llm,
                           graph=link_graph, memory=memory, k=args.k,
-                          rewrite_llm=args.rewrite_llm)
+                          rewrite_llm=args.rewrite_llm, bm25=bm25)
     return run_repl(session)
 
 
@@ -548,6 +549,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--chunking", choices=["heading", "parent-child"], default="heading",
         help="Chunking strategy: heading (default) or parent-child.",
     )
+    p_index.add_argument(
+        "--no-bm25", action="store_true",
+        help="Skip building the BM25 lexical index (disables hybrid search).",
+    )
     p_index.set_defaults(func=_cmd_index)
 
     p_ask = sub.add_parser("ask", help="Ask a question over the indexed vault.")
@@ -676,6 +681,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Rewrite the query with the LLM using conversation context (payload-logged).",
     )
     p_chat.set_defaults(func=_cmd_chat)
+
+    for hybrid_sub in (p_ask, p_chat):
+        hybrid_sub.add_argument(
+            "--no-hybrid", action="store_true",
+            help="Disable BM25 hybrid fusion; vector-only retrieval.",
+        )
 
     p_serve = sub.add_parser("serve", help="Run the local HTTP API for a GUI.")
     p_serve.add_argument("--host", default="127.0.0.1",

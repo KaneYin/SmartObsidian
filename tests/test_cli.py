@@ -70,3 +70,17 @@ def test_cli_index_parent_child(sample_vault, tmp_path, monkeypatch):
     assert rc == 0
     metas = next(iter(VectorStore.load(idx).metadata_by_note().values()))
     assert "parent_id" in metas[0]
+
+
+def test_cli_ask_no_hybrid_runs(sample_vault, tmp_path, monkeypatch, capsys):
+    from weft.embeddings import FakeEmbedder
+    from weft.llm import FakeLLM
+    monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr("weft.service.make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr("weft.service.make_llm", lambda *a, **k: FakeLLM(response="ans [1]"))
+    idx = tmp_path / "idx"
+    cli.main(["index", str(sample_vault), "--store", str(idx)])
+    capsys.readouterr()
+    rc = cli.main(["ask", "coffee", "--store", str(idx), "--no-hybrid"])
+    assert rc == 0
+    assert "ans [1]" in capsys.readouterr().out

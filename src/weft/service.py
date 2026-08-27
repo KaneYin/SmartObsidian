@@ -113,9 +113,16 @@ def service_memory_reject(store_path: Path, prop_id: str) -> dict:
     return {"rejected": prop_id}
 
 
+def load_bm25(store_path: Path):
+    from weft.bm25 import BM25Index
+    from weft.index import bm25_path_for
+    path = bm25_path_for(Path(store_path))
+    return BM25Index.load(path) if path.exists() else None
+
+
 def service_ask(store_path: Path, question: str, k: int = 5, *,
                 use_graph: bool = True, use_memory: bool = True,
-                overrides: dict | None = None) -> dict:
+                overrides: dict | None = None, use_hybrid: bool = True) -> dict:
     from weft.agent import ask  # local import keeps langgraph off the read path
     if not isinstance(k, int) or not (1 <= k <= MAX_K):
         raise ValueError(f"k must be between 1 and {MAX_K}")
@@ -129,8 +136,10 @@ def service_ask(store_path: Path, question: str, k: int = 5, *,
     if use_graph:
         gpath = graph_path_for(sp)
         graph = LinkGraph.load(gpath) if gpath.exists() else None
+    bm25 = load_bm25(sp) if use_hybrid else None
     raw = make_llm(overrides or {}, sp)         # may raise ProviderUnavailable
     llm = AuditedLLM(raw, sp.parent / "api-log.jsonl", "ask")
     memory = make_memory(sp) if use_memory else None
-    result = ask(question, make_embedder(), store, llm, k=k, graph=graph, memory=memory)
+    result = ask(question, make_embedder(), store, llm, k=k, graph=graph,
+                 memory=memory, bm25=bm25)
     return {"answer": result.answer, "sources": list(result.sources)}
