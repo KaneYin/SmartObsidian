@@ -12,6 +12,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from weft.embeddings import Embedder
+from weft.fusion import reciprocal_rank_fusion
 from weft.graph import LinkGraph
 from weft.llm import LLMClient
 from weft.store import SearchHit, VectorStore
@@ -93,6 +94,28 @@ def graph_aware_retrieve(
             used_notes.add(rp)
 
     return base + expansion
+
+
+def _hit_key(h: SearchHit):
+    m = h.metadata
+    return m.get("parent_id") or (m["rel_path"], m.get("ordinal", 0))
+
+
+def dual_query_retrieve(question: str, context_query, embedder: Embedder,
+                        store: VectorStore, *, graph: LinkGraph | None = None,
+                        k: int = 5) -> list[SearchHit]:
+    """Retrieve for the current question and, when present, a reconstructed context
+    query; fuse the two rankings with RRF. context_query None -> single query."""
+    def one(q: str) -> list[SearchHit]:
+        if graph is not None:
+            return graph_aware_retrieve(q, embedder, store, graph, k=k)
+        return retrieve(q, embedder, store, k=k)
+
+    hits_main = one(question)
+    if not context_query:
+        return hits_main
+    hits_ctx = one(context_query)
+    return reciprocal_rank_fusion([hits_main, hits_ctx], key=_hit_key)[:k]
 
 
 def collect_memory(memory, embedder: Embedder, question: str, k: int = 5) -> dict | None:
