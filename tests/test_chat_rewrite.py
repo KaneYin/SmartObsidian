@@ -53,3 +53,16 @@ def test_send_with_history_still_answers():
     turn = s.send("why?")
     assert turn.answer == "ans"
     assert turn.sources == ["c.md"]
+
+
+def test_chat_reranks_when_set():
+    from weft.rerank import FakeReranker
+    emb = FakeEmbedder(dim=16)
+    store = VectorStore(dim=emb.dim)
+    for i, t in enumerate(["zebra stripes", "coffee drip", "zebra herd"]):
+        store.add(emb.embed([t])[0],
+                  {"rel_path": f"n{i}.md", "heading": "H", "text": t, "ordinal": i,
+                   "tags": [], "wikilinks": []})
+    s = ChatSession(emb, store, FakeLLM(response="a"), reranker=FakeReranker(), k=2)
+    turn = s.send("zebra")
+    assert set(turn.sources) == {"n0.md", "n2.md"}
