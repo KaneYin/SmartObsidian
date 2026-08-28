@@ -56,3 +56,9 @@ def test_chunk_parent_fields_default_none():
     assert c.parent_id is None and c.parent_text is None
     c2 = Chunk(rel_path="a.md", heading="H", text="t", parent_id="par_x", parent_text="section")
     assert c2.parent_id == "par_x" and c2.parent_text == "section"
+
+
+def test_chunk_embed_text_defaults_none():
+    from weft.parser import Chunk
+    assert Chunk(rel_path="a.md", heading="H", text="t").embed_text is None
+    assert Chunk(rel_path="a.md", heading="H", text="t", embed_text="ctx t").embed_text == "ctx t"
