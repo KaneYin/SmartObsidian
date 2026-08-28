@@ -104,3 +104,23 @@ def test_run_repl_unknown_command(tmp_path):
     out = []
     run_repl(s, read=_reader(["/bogus", "/exit"]), emit=out.append)
     assert any("unknown command" in line for line in out)
+
+
+def test_chat_memory_query_adds_ranking(tmp_path):
+    from weft.chat import ChatSession
+    from weft.embeddings import FakeEmbedder
+    from weft.llm import FakeLLM
+    from weft.memory import MemoryStore
+    from weft.store import VectorStore
+    emb = FakeEmbedder(dim=16)
+    store = VectorStore(dim=16)
+    store.add_batch(emb.embed(["alpha note", "beta note"]),
+                    [{"rel_path": "a.md", "heading": "A", "text": "alpha note", "ordinal": 0},
+                     {"rel_path": "b.md", "heading": "B", "text": "beta note", "ordinal": 1}])
+    mem = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl")
+    mem.remember("fact", "beta")
+    s = ChatSession(emb, store, FakeLLM(response="ok"), memory=mem,
+                    k=2, memory_query=True)
+    turn = s.send("alpha")
+    assert turn.answer == "ok"
+    assert set(s.last_sources) == {"a.md", "b.md"}

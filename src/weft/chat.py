@@ -6,7 +6,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from weft.agent import SYSTEM, build_prompt, collect_memory, dual_query_retrieve
+from weft.agent import (
+    SYSTEM, build_memory_query, build_prompt, collect_memory, dual_query_retrieve,
+)
 from weft.memory import SEMANTIC_TYPES
 from weft.rerank import RERANK_POOL
 
@@ -35,7 +37,7 @@ class ChatTurn:
 class ChatSession:
     def __init__(self, embedder, store, llm, *, graph=None, memory=None,
                  k: int = 5, window: int = 6, rewrite_llm: bool = False, bm25=None,
-                 reranker=None):
+                 reranker=None, memory_query: bool = False):
         self._embedder = embedder
         self._store = store
         self._llm = llm
@@ -46,6 +48,7 @@ class ChatSession:
         self._rewrite_llm = rewrite_llm
         self._bm25 = bm25
         self._reranker = reranker
+        self._memory_query = memory_query
         self.history: list[dict] = []
         self.last_sources: list[str] = []
 
@@ -62,13 +65,16 @@ class ChatSession:
 
     def _retrieve(self, question: str):
         ctx = self._context_query(question)
+        mq = build_memory_query(self._memory) if self._memory_query else None
         if self._reranker is not None:
             pool = dual_query_retrieve(question, ctx, self._embedder, self._store,
-                                       graph=self._graph, k=RERANK_POOL, bm25=self._bm25)
+                                       graph=self._graph, k=RERANK_POOL,
+                                       bm25=self._bm25, memory_query=mq)
             rerank_query = f"{ctx}\n{question}" if ctx else question
             return self._reranker.rerank(rerank_query, pool, self._k)
         return dual_query_retrieve(question, ctx, self._embedder, self._store,
-                                   graph=self._graph, k=self._k, bm25=self._bm25)
+                                   graph=self._graph, k=self._k, bm25=self._bm25,
+                                   memory_query=mq)
 
     def send(self, question: str) -> ChatTurn:
         hits = self._retrieve(question)
