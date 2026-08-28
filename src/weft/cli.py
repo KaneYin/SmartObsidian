@@ -138,7 +138,7 @@ def _cmd_index(args: argparse.Namespace) -> int:
     )
     store_path = Path(args.store)
     contextual_llm = None
-    if args.contextual:
+    if getattr(args, "contextual", False):
         try:
             raw = service.make_llm(_llm_overrides(args), store_path)
         except ProviderUnavailable as exc:
@@ -171,7 +171,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             store_path, args.question, k=args.k,
             use_graph=not args.no_graph, use_memory=not args.no_memory,
             overrides=_llm_overrides(args), use_hybrid=not args.no_hybrid,
-            rerank=args.rerank,
+            rerank=args.rerank, use_memory_query=args.memory_query,
         )
     except (ProviderUnavailable, ValueError) as exc:
         print(terminal_safe(exc), file=sys.stderr)
@@ -211,7 +211,8 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     reranker = service.make_reranker() if args.rerank else None
     session = ChatSession(service.make_embedder(), store, llm,
                           graph=link_graph, memory=memory, k=args.k,
-                          rewrite_llm=args.rewrite_llm, bm25=bm25, reranker=reranker)
+                          rewrite_llm=args.rewrite_llm, bm25=bm25, reranker=reranker,
+                          memory_query=args.memory_query)
     return run_repl(session)
 
 
@@ -756,6 +757,10 @@ def build_parser() -> argparse.ArgumentParser:
         hybrid_sub.add_argument(
             "--rerank", action="store_true",
             help="Rerank the retrieval pool with a cross-encoder (downloads a model).",
+        )
+        hybrid_sub.add_argument(
+            "--memory-query", action="store_true",
+            help="Fuse a query built from durable facts + decisions into retrieval.",
         )
 
     p_serve = sub.add_parser("serve", help="Run the local HTTP API for a GUI.")

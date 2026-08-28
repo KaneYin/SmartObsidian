@@ -97,3 +97,18 @@ def test_cli_index_sliding_and_contextual(sample_vault, tmp_path, monkeypatch):
     assert rc == 0
     manifest = json.loads(manifest_path_for(idx).read_text())
     assert manifest["chunking"] == "sliding" and manifest["contextual"] is True
+
+
+def test_cli_ask_and_chat_memory_query(sample_vault, tmp_path, monkeypatch):
+    from weft.embeddings import FakeEmbedder
+    monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr("weft.service.make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr("weft.service.make_llm", lambda *a, **k: FakeLLM(response="A [1]"))
+    idx = tmp_path / "idx"
+    cli.main(["index", str(sample_vault), "--store", str(idx)])
+    rc = cli.main(["ask", "hello", "--store", str(idx), "--memory-query"])
+    assert rc == 0
+    monkeypatch.setattr("weft.chat.run_repl", lambda session: 0)
+    monkeypatch.setattr("weft.service.make_llm", lambda *a, **k: FakeLLM(response="A [1]"))
+    rc2 = cli.main(["chat", "--store", str(idx), "--memory-query"])
+    assert rc2 == 0

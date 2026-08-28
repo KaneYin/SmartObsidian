@@ -209,6 +209,21 @@ reranker model on first use, then runs offline. It is slower than plain retrieva
 so it is opt-in. Together the three stages form the pipeline: query rewrite → BM25
 hybrid → cross-encoder rerank.
 
+### Bias retrieval toward what Weft remembers
+
+`--memory-query` (on `ask` and `chat`) builds an extra search query from your active
+durable **facts and decisions** (preferences are excluded) and fuses it as one more
+RRF ranking, so answers lean toward your standing context:
+
+```bash
+uv run weft ask "what did I decide?" --memory-query
+uv run weft chat --memory-query
+```
+
+It stays fully local — the memory query is assembled from already-stored memory text
+and never leaves the machine. Off by default; composes with `--rewrite-llm`, hybrid
+search, and `--rerank`.
+
 ## Ask questions
 
 ```bash
