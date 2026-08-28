@@ -88,3 +88,19 @@ def test_service_ask_validates_k(tmp_path):
     _index(store)
     with pytest.raises(ValueError):
         service_ask(store, "q", k=0)
+
+
+def test_service_ask_memory_query_runs(tmp_path, monkeypatch):
+    import weft.service as S
+    from weft.llm import FakeLLM
+    from weft.memory import MemoryStore
+    store = tmp_path / ".weft" / "index"
+    save_config(config_path_for(store), ResolvedConfig(provider="fake"))
+    _index(store)
+    mem = MemoryStore(store.parent / "memory.jsonl", store.parent / "episodes.jsonl")
+    mem.remember("fact", "hello")
+    monkeypatch.setattr(S, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr(S, "make_llm", lambda *a, **k: FakeLLM(response="answer [1]"))
+    monkeypatch.setattr(S, "make_memory", lambda sp: mem)
+    data = S.service_ask(store, "world", k=3, use_memory_query=True)
+    assert data["answer"] == "answer [1]"

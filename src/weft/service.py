@@ -128,8 +128,8 @@ def make_reranker():
 def service_ask(store_path: Path, question: str, k: int = 5, *,
                 use_graph: bool = True, use_memory: bool = True,
                 overrides: dict | None = None, use_hybrid: bool = True,
-                rerank: bool = False) -> dict:
-    from weft.agent import ask  # local import keeps langgraph off the read path
+                rerank: bool = False, use_memory_query: bool = False) -> dict:
+    from weft.agent import ask, build_memory_query  # local import keeps langgraph off the read path
     if not isinstance(k, int) or not (1 <= k <= MAX_K):
         raise ValueError(f"k must be between 1 and {MAX_K}")
     if not question or not str(question).strip():
@@ -147,6 +147,7 @@ def service_ask(store_path: Path, question: str, k: int = 5, *,
     llm = AuditedLLM(raw, sp.parent / "api-log.jsonl", "ask")
     memory = make_memory(sp) if use_memory else None
     reranker = make_reranker() if rerank else None
+    mq = build_memory_query(memory) if use_memory_query else None
     result = ask(question, make_embedder(), store, llm, k=k, graph=graph,
-                 memory=memory, bm25=bm25, reranker=reranker)
+                 memory=memory, bm25=bm25, reranker=reranker, memory_query=mq)
     return {"answer": result.answer, "sources": list(result.sources)}
