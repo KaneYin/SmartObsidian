@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from weft.bm25 import BM25Index
-from weft.chunking import chunk_strategy
+from weft.chunking import chunk_strategy, contextualize
 from weft.embeddings import Embedder
 from weft.graph import LinkGraph
 from weft.parser import parse_vault
@@ -40,6 +40,7 @@ def build_index(
     policy: PrivacyPolicy | None = None,
     chunking: str = "heading",
     no_bm25: bool = False,
+    contextual_llm=None,
 ) -> tuple[int, int]:
     """Index every chunk and build the link graph.
     Returns (n_chunks, n_edges)."""
@@ -47,11 +48,16 @@ def build_index(
     policy = policy or PrivacyPolicy()
     notes = parse_vault(root, policy=policy)
     strategy = chunk_strategy(chunking)
-    pairs = [(note, c) for note in notes for c in strategy(note)]
+    pairs = []
+    for note in notes:
+        chunks = strategy(note)
+        if contextual_llm is not None:
+            chunks = contextualize(note, chunks, contextual_llm)
+        pairs.extend((note, c) for c in chunks)
 
     store = VectorStore(dim=embedder.dim)
     if pairs:
-        vectors = embedder.embed([c.text for _, c in pairs])
+        vectors = embedder.embed([(c.embed_text or c.text) for _, c in pairs])
         metadatas = []
         for note, c in pairs:
             meta = {
@@ -81,6 +87,7 @@ def build_index(
         "vault_root": str(root),
         "privacy": policy.as_dict(),
         "chunking": chunking,
+        "contextual": contextual_llm is not None,
     }
     secure_write_text(
         manifest_path_for(store_path),
