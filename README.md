@@ -17,6 +17,8 @@ Implemented milestones:
   log into proposals you `accept`/`reject`, plus a read-only `_memory.md` mirror.
 - M5.0: a pluggable provider layer so reasoning can run on a local open-weight
   model (Ollama) fully offline, or on a remote API, chosen by GPU capability.
+- CRAG Task 1 benchmark adapter: ephemeral retrieval over CRAG's cached web pages
+  with local Ollama generation and no remote fallback.
 
 A `chat` REPL (M4), an OpenAI-compatible provider and opt-in fallback (M5.1), the
 background daemon, automatic note edits, and scheduling remain future work.
@@ -138,6 +140,13 @@ They are ignored by Git, but filesystem permissions and backups still matter.
 ```bash
 UV_CACHE_DIR=/tmp/weft-uv-cache uv run --extra dev pytest
 ```
+
+To evaluate general RAG behavior against CRAG Task 1, see
+[Run CRAG Task 1 with local Ollama](docs/how-to/run-crag-benchmark.md). The
+adapter implements CRAG's `get_batch_size()` and `batch_generate_answer()` model
+contract without mixing benchmark pages into the user's Obsidian index. A
+lightweight `weft benchmark crag <dataset>` runner can use Ollama for both answer
+generation and an approximate local judge.
 
 See [the August 2026 security hardening record](docs/security/2026-08-08-security-hardening.md)
 for the threat model, root causes, behavior changes, dependency advisories, and

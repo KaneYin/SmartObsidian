@@ -23,17 +23,23 @@ class OllamaClient:
         self._http = client or httpx.Client(timeout=120)
 
     def complete(self, system: str, prompt: str) -> str:
+        options = dict(self._params)
+        think = options.pop("think", None)
+        body = {
+            "model": self.model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            "options": options,
+        }
+        # Ollama treats thinking as a top-level chat control, not a model option.
+        if "think" in self._params:
+            body["think"] = think
         resp = self._http.post(
             f"{self.endpoint}/api/chat",
-            json={
-                "model": self.model,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
-                ],
-                "options": self._params,
-            },
+            json=body,
         )
         resp.raise_for_status()
         return resp.json()["message"]["content"]

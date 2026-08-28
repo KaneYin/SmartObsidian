@@ -26,6 +26,24 @@ def test_complete_sends_chat_and_returns_content():
     assert oc.provider == "ollama" and oc.left_machine is False and oc.model == "llama3.1:8b"
 
 
+def test_complete_sends_think_as_top_level_chat_control():
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": "Paris"}})
+
+    oc = OllamaClient(
+        "http://localhost:11434",
+        "qwen3.5:9b",
+        params={"temperature": 0.0, "think": False},
+        client=_client(handler),
+    )
+    assert oc.complete(system="S", prompt="P") == "Paris"
+    assert seen["think"] is False
+    assert "think" not in seen["options"]
+
+
 def test_list_models_parses_tags():
     def handler(request):
         return httpx.Response(200, json={"models": [{"name": "llama3.1:8b"}, {"name": "qwen2.5:3b"}]})
