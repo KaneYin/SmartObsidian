@@ -60,3 +60,37 @@ def test_ask_end_to_end_with_fakes(sample_vault, tmp_path):
     assert result.answer == "Answer citing [1]."
     assert len(result.sources) >= 1
     assert result.sources[0].endswith(".md")
+
+
+def test_build_memory_query_facts_and_decisions_only(tmp_path):
+    from weft.agent import build_memory_query
+    from weft.memory import MemoryStore
+    m = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl")
+    m.remember("decision", "Uses LanceDB for vectors")
+    m.remember("fact", "Thesis is on retrieval")
+    m.remember("preference", "Answer concisely")
+    q = build_memory_query(m)
+    assert "LanceDB" in q and "Thesis" in q
+    assert "concisely" not in q  # preferences excluded
+
+
+def test_build_memory_query_none_when_empty(tmp_path):
+    from weft.agent import build_memory_query
+    from weft.memory import MemoryStore
+    assert build_memory_query(None) is None
+    m = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl")
+    m.remember("preference", "Answer concisely")
+    assert build_memory_query(m) is None  # only a preference -> nothing usable
+
+
+def test_dual_query_retrieve_fuses_memory_query(tmp_path):
+    from weft.agent import dual_query_retrieve
+    from weft.embeddings import FakeEmbedder
+    from weft.store import VectorStore
+    emb = FakeEmbedder(dim=16)
+    store = VectorStore(dim=16)
+    store.add_batch(emb.embed(["alpha note", "beta note"]),
+                    [{"rel_path": "a.md", "heading": "A", "text": "alpha note", "ordinal": 0},
+                     {"rel_path": "b.md", "heading": "B", "text": "beta note", "ordinal": 1}])
+    hits = dual_query_retrieve("alpha", None, emb, store, k=2, memory_query="beta")
+    assert {h.metadata["rel_path"] for h in hits} == {"a.md", "b.md"}

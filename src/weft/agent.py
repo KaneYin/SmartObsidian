@@ -131,11 +131,26 @@ def fused_retrieve(queries: list[str], embedder: Embedder, store: VectorStore, *
 
 def dual_query_retrieve(question: str, context_query, embedder: Embedder,
                         store: VectorStore, *, graph: LinkGraph | None = None,
-                        k: int = 5, bm25=None) -> list[SearchHit]:
-    """Fuse the current question and the reconstructed context query (M8), each
-    optionally hybridized with BM25 (M9)."""
-    queries = [question] + ([context_query] if context_query else [])
+                        k: int = 5, bm25=None, memory_query=None) -> list[SearchHit]:
+    """Fuse the current question, the reconstructed context query (M8), and an
+    optional durable-memory query (M12), each optionally hybridized with BM25 (M9)."""
+    queries = [question]
+    if context_query:
+        queries.append(context_query)
+    if memory_query:
+        queries.append(memory_query)
     return fused_retrieve(queries, embedder, store, bm25=bm25, graph=graph, k=k)
+
+
+def build_memory_query(memory) -> str | None:
+    """A search query from durable facts + decisions (topical memory). Preferences
+    are excluded — behavioral instructions make poor search queries. Returns None
+    when there is nothing usable."""
+    if memory is None:
+        return None
+    texts = [i.text for i in memory.active_semantic()
+             if i.type in ("fact", "decision")]
+    return " ".join(texts) or None
 
 
 def collect_memory(memory, embedder: Embedder, question: str, k: int = 5) -> dict | None:
@@ -195,17 +210,19 @@ def reason(question: str, hits: list[SearchHit], llm: LLMClient,
 
 def build_graph(embedder: Embedder, store: VectorStore, llm: LLMClient,
                 link_graph: LinkGraph | None = None, memory: dict | None = None,
-                bm25=None, reranker=None, rerank_pool: int = RERANK_POOL):
+                bm25=None, reranker=None, rerank_pool: int = RERANK_POOL,
+                memory_query=None):
     """Compile the retrieve -> reason graph. Retrieval fuses vector (and BM25 when
     provided) rankings via RRF, then optionally reranks with a cross-encoder."""
 
     def _retrieve(state: AgentState) -> AgentState:
         q, k = state["question"], state.get("k", 5)
+        queries = [q] + ([memory_query] if memory_query else [])
         if reranker is not None:
-            pool = fused_retrieve([q], embedder, store, bm25=bm25,
+            pool = fused_retrieve(queries, embedder, store, bm25=bm25,
                                   graph=link_graph, k=rerank_pool)
             return {"hits": reranker.rerank(q, pool, k)}
-        return {"hits": fused_retrieve([q], embedder, store, bm25=bm25,
+        return {"hits": fused_retrieve(queries, embedder, store, bm25=bm25,
                                        graph=link_graph, k=k)}
 
     def _reason(state: AgentState) -> AgentState:
@@ -231,10 +248,12 @@ def ask(
     bm25=None,
     reranker=None,
     rerank_pool: int = RERANK_POOL,
+    memory_query=None,
 ) -> AskResult:
     mem_obj = collect_memory(memory, embedder, question, k=k) if memory is not None else None
     app = build_graph(embedder, store, llm, link_graph=graph, memory=mem_obj,
-                      bm25=bm25, reranker=reranker, rerank_pool=rerank_pool)
+                      bm25=bm25, reranker=reranker, rerank_pool=rerank_pool,
+                      memory_query=memory_query)
     final = app.invoke({"question": question, "k": k})
     hits = final.get("hits", [])
     sources: list[str] = []
