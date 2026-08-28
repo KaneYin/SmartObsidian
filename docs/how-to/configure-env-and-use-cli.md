@@ -160,6 +160,23 @@ sent once even when several of its paragraphs match. The default `heading` strat
 is unchanged. The chosen strategy is recorded in `index.manifest.json`; `ask` reads
 the parent context straight from the stored metadata (no extra flags).
 
+### Sliding-window and contextual chunking
+
+Two more indexing options compose with the above:
+
+```bash
+uv run weft index "/path/to/Vault" --chunking sliding       # overlapping fixed-size windows
+uv run weft index "/path/to/Vault" --contextual             # LLM situates each chunk (any base chunking)
+uv run weft index "/path/to/Vault" --chunking parent-child --contextual
+```
+
+`--contextual` (Anthropic's Contextual Retrieval) sends each chunk plus its note to the
+configured provider for a one-line situating sentence, which is prepended to the text
+that gets *embedded* — the displayed text stays raw. It is free and offline on a local
+Ollama provider, and every payload is audited to `api-log.jsonl`. `--provider`/`--model`
+override the provider for this pass. `sliding` slides ~1000-character windows over the
+note body with ~200 overlap, ignoring heading boundaries.
+
 ### Hybrid search (BM25 + vectors)
 
 `weft index` also builds a small BM25 lexical index (`.weft/index.bm25.json`).

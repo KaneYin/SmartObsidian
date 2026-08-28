@@ -84,3 +84,16 @@ def test_cli_ask_no_hybrid_runs(sample_vault, tmp_path, monkeypatch, capsys):
     rc = cli.main(["ask", "coffee", "--store", str(idx), "--no-hybrid"])
     assert rc == 0
     assert "ans [1]" in capsys.readouterr().out
+
+
+def test_cli_index_sliding_and_contextual(sample_vault, tmp_path, monkeypatch):
+    import json
+    from weft.index import manifest_path_for
+    monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr("weft.service.make_llm", lambda *a, **k: FakeLLM(response="ctx."))
+    idx = tmp_path / "idx"
+    rc = cli.main(["index", str(sample_vault), "--store", str(idx),
+                   "--chunking", "sliding", "--contextual"])
+    assert rc == 0
+    manifest = json.loads(manifest_path_for(idx).read_text())
+    assert manifest["chunking"] == "sliding" and manifest["contextual"] is True

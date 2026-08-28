@@ -136,9 +136,20 @@ def _cmd_index(args: argparse.Namespace) -> int:
         excludes=defaults + tuple(args.exclude),
         redaction_patterns=tuple(args.redact),
     )
+    store_path = Path(args.store)
+    contextual_llm = None
+    if args.contextual:
+        try:
+            raw = service.make_llm(_llm_overrides(args), store_path)
+        except ProviderUnavailable as exc:
+            print(terminal_safe(exc), file=sys.stderr)
+            return 1
+        contextual_llm = AuditedLLM(
+            raw, store_path.parent / "api-log.jsonl", "contextualize")
     n_chunks, n_edges = build_index(
-        Path(args.vault), make_embedder(), Path(args.store), policy=policy,
+        Path(args.vault), make_embedder(), store_path, policy=policy,
         chunking=args.chunking.replace("-", "_"), no_bm25=args.no_bm25,
+        contextual_llm=contextual_llm,
     )
     print(
         f"Indexed {n_chunks} chunks and {n_edges} link edges from "
@@ -519,8 +530,13 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
             batch_size=args.batch_size,
             k=args.k,
             use_hybrid=not args.no_hybrid,
+            use_rewrite=args.rewrite_llm,
             use_reranker=args.reranker,
             reranker_model=args.reranker_model,
+            chunk_chars=args.chunk_chars,
+            overlap=args.overlap,
+            rerank_pool=args.rerank_pool,
+            system_prompt=args.system_prompt,
         )
         result = run_crag(
             args.dataset,
@@ -589,9 +605,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace matching content with [REDACTED] before embedding (repeatable).",
     )
     p_index.add_argument(
-        "--chunking", choices=["heading", "parent-child"], default="heading",
-        help="Chunking strategy: heading (default) or parent-child.",
+        "--chunking", choices=["heading", "parent-child", "sliding"], default="heading",
+        help="Chunking strategy: heading (default), parent-child, or sliding.",
     )
+    p_index.add_argument(
+        "--contextual", action="store_true",
+        help="Prepend an LLM-written context sentence to each chunk's embedding "
+             "(payload-logged; free/offline on a local provider).",
+    )
+    p_index.add_argument("--provider", help="Provider override for --contextual.")
+    p_index.add_argument("--model", help="Model override for --contextual.")
     p_index.add_argument(
         "--no-bm25", action="store_true",
         help="Skip building the BM25 lexical index (disables hybrid search).",
@@ -769,6 +792,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_benchmark.add_argument(
         "--reranker-model", default="cross-encoder/ms-marco-MiniLM-L-6-v2",
         help="CrossEncoder model name for reranking.",
+    )
+    p_benchmark.add_argument(
+        "--rewrite-llm", action="store_true",
+        help="Enable LLM query rewrite with RRF in benchmark retrieval.",
+    )
+    p_benchmark.add_argument(
+        "--chunk-chars", type=_bounded_int("chunk-chars", 100, 10000),
+        help="Chunk character limit for web page chunking.",
+    )
+    p_benchmark.add_argument(
+        "--overlap", type=_bounded_int("overlap", 0, 5000),
+        help="Chunk character overlap for web page chunking.",
+    )
+    p_benchmark.add_argument(
+        "--rerank-pool", type=_bounded_int("rerank-pool", 1, 500),
+        help="Number of top candidates fetched prior to reranking.",
+    )
+    p_benchmark.add_argument(
+        "--system-prompt",
+        help="Custom system prompt override for CRAG generation.",
     )
     p_benchmark.set_defaults(func=_cmd_benchmark)
 
