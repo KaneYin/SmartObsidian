@@ -44,6 +44,7 @@ class Episode:
     question: str
     answer: str
     sources: list[str]
+    vault_root: str | None = None
 
 
 @dataclass
@@ -68,9 +69,10 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 class MemoryStore:
-    def __init__(self, memory_path: Path, episodes_path: Path):
+    def __init__(self, memory_path: Path, episodes_path: Path, vault_root: str = ""):
         self._memory_path = Path(memory_path)
         self._episodes_path = Path(episodes_path)
+        self._vault_root = vault_root
 
     # --- semantic items ---------------------------------------------------
     def _items(self) -> dict[str, MemoryItem]:
@@ -144,12 +146,19 @@ class MemoryStore:
             question=question,
             answer=answer,
             sources=list(sources),
+            vault_root=self._vault_root,
         )
         secure_append_json(self._episodes_path, asdict(ep))
         return ep
 
     def episodes(self) -> list[Episode]:
-        return [Episode(**rec) for rec in _read_jsonl(self._episodes_path)]
+        """Only episodes logged against this exact vault_root. A missing or
+        mismatched vault_root (including every pre-scoping record) is
+        excluded -- fail closed rather than assume it matches."""
+        return [
+            ep for ep in (Episode(**rec) for rec in _read_jsonl(self._episodes_path))
+            if ep.vault_root == self._vault_root
+        ]
 
     # --- recall -----------------------------------------------------------
     def _episode_line(self, ep: Episode) -> str:

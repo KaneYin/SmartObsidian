@@ -1,3 +1,4 @@
+import json
 import os
 import stat
 
@@ -76,3 +77,46 @@ def test_log_episode_appends_and_reloads(tmp_path):
     assert len(eps) == 1
     assert eps[0].question == "what did I decide?"
     assert eps[0].sources == ["d.md"]
+
+
+def test_episode_stamped_with_vault_root(tmp_path):
+    ms = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl",
+                      vault_root="/vault/a")
+    ms.log_episode("q", "a", ["n.md"])
+    eps = ms.episodes()
+    assert len(eps) == 1
+    assert eps[0].vault_root == "/vault/a"
+
+
+def test_episodes_exclude_different_vault_root(tmp_path):
+    # Same store path, two different vaults -- the exact bug scenario.
+    ms_a = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl",
+                        vault_root="/vault/a")
+    ms_a.log_episode("what is this vault about", "vault A content", ["a.md"])
+    ms_b = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl",
+                        vault_root="/vault/b")
+    assert ms_b.episodes() == []
+
+
+def test_episodes_exclude_missing_vault_root_field(tmp_path):
+    # A pre-fix record with no vault_root key at all must never match, even
+    # if the current store also happens to be unscoped.
+    episodes_path = tmp_path / "episodes.jsonl"
+    episodes_path.write_text(json.dumps({
+        "id": "ep_legacy", "ts": "2026-08-28T00:00:00+00:00",
+        "question": "old q", "answer": "old a", "sources": [],
+    }) + "\n")
+    os.chmod(episodes_path, 0o600)
+    ms = MemoryStore(tmp_path / "memory.jsonl", episodes_path, vault_root="")
+    assert ms.episodes() == []
+
+
+def test_recall_log_kind_excludes_other_vault(tmp_path):
+    from weft.embeddings import FakeEmbedder
+    ms_a = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl",
+                        vault_root="/vault/a")
+    ms_a.log_episode("what is this vault about", "vault A is about coffee", ["a.md"])
+    ms_b = MemoryStore(tmp_path / "memory.jsonl", tmp_path / "episodes.jsonl",
+                        vault_root="/vault/b")
+    hits = ms_b.recall(FakeEmbedder(dim=16), "what is this vault about", k=5, kinds={"log"})
+    assert hits == []
