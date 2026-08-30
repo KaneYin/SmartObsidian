@@ -40,6 +40,9 @@ docs/tutorials/
 docs/superpowers/
 AgentsOut/
 
+# Local git worktrees for isolated feature work
+.worktrees/
+
 # Node (if needed)
 node_modules/
 npm-debug.log*
