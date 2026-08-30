@@ -5,13 +5,14 @@ beside each other so a single `weft index` writes .npz/.json/.graph.json."""
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 from weft.bm25 import BM25Index
 from weft.chunking import chunk_strategy, contextualize
 from weft.embeddings import Embedder
 from weft.graph import LinkGraph
-from weft.parser import parse_vault
+from weft.parser import Chunk, Note, parse_vault
 from weft.privacy import PrivacyPolicy
 from weft.security import secure_write_text, vault_root
 from weft.store import VectorStore
@@ -43,6 +44,38 @@ def read_vault_root(store_path: Path) -> str:
     return manifest.get("vault_root") or ""
 
 
+def build_overview_chunk(notes: list[Note]) -> Chunk | None:
+    """A synthetic chunk summarizing vault composition -- folder and tag
+    breakdown -- so a broad question like 'what is this vault about' has a
+    real target to retrieve instead of relying on nearest-neighbor luck
+    over individual note chunks. Built from already privacy-filtered notes,
+    so it never surfaces excluded content."""
+    if not notes:
+        return None
+    folder_counts = Counter(
+        note.rel_path.split("/", 1)[0] if "/" in note.rel_path else "(root)"
+        for note in notes
+    )
+    tag_counts = Counter(tag for note in notes for tag in note.tags)
+    folders = ", ".join(
+        f"{name}/ ({n} notes)" for name, n in folder_counts.most_common()
+    )
+    lines = [
+        f"Vault overview -- {len(notes)} notes across {len(folder_counts)} "
+        f"top-level folders.",
+        f"Folders: {folders}.",
+    ]
+    if tag_counts:
+        tags = ", ".join(f"#{tag} ({n})" for tag, n in tag_counts.most_common(15))
+        lines.append(f"Most common tags: {tags}.")
+    return Chunk(
+        rel_path="(vault overview)",
+        heading="Vault overview",
+        text="\n".join(lines),
+        ordinal=-1,
+    )
+
+
 def build_index(
     vault_path: Path,
     embedder: Embedder,
@@ -64,6 +97,14 @@ def build_index(
         if contextual_llm is not None:
             chunks = contextualize(note, chunks, contextual_llm)
         pairs.extend((note, c) for c in chunks)
+
+    overview_chunk = build_overview_chunk(notes)
+    if overview_chunk is not None:
+        overview_note = Note(
+            rel_path="(vault overview)", title="Vault overview",
+            frontmatter={}, tags=[], wikilinks=[], body="",
+        )
+        pairs.append((overview_note, overview_chunk))
 
     store = VectorStore(dim=embedder.dim)
     if pairs:

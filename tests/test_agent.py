@@ -59,7 +59,7 @@ def test_ask_end_to_end_with_fakes(sample_vault, tmp_path):
     result = ask("tell me about coffee", FakeEmbedder(dim=16), store, llm, k=3)
     assert result.answer == "Answer citing [1]."
     assert len(result.sources) >= 1
-    assert result.sources[0].endswith(".md")
+    assert any(s.endswith(".md") for s in result.sources)
 
 
 def test_build_memory_query_facts_and_decisions_only(tmp_path):
