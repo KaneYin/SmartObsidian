@@ -191,6 +191,38 @@ unlike BM25, this exposes no information beyond what's already visible via
 existing tags/rel_path citations, so keeping the flag surface minimal per
 YAGNI.
 
+### Ranking-competition tradeoff (evaluated post-implementation)
+
+A final review flagged that the overview chunk could in principle outrank a
+genuinely relevant note for an ordinary, specific question (not just broad
+"about this vault" questions) if it shares vocabulary with the query — and
+this was in fact observed against `FakeEmbedder` (the test suite's
+deterministic hash-based stand-in, used because it needs no model download).
+Checked against the real embedder
+(`SentenceTransformerEmbedder`/all-MiniLM-L6-v2) on the same fixture and
+query ("tell me about coffee" over the `sample_vault` fixture), the overview
+chunk scored **0.109** cosine similarity versus **0.63/0.57/0.40/0.39** for
+the four real note chunks — nowhere close to competitive. `FakeEmbedder`
+produces content-independent random unit vectors from a text hash, so its
+similarity scores carry no real semantic signal; the ranking swap seen under
+it is an artifact of the test double, not a production risk. No mitigation
+was added; `tests/test_agent.py`'s assertion was correctly loosened (see
+Task 4 in the implementation plan) to not assume a specific rank under that
+fake embedder, since asserting an exact tie-break order there was never a
+meaningful invariant to protect.
+
+### Suggest-command interaction (caught in final review, fixed)
+
+The overview chunk is a real chunk in the `VectorStore`, and `weft suggest`'s
+`note_vectors()` originally mean-pooled *every* `rel_path` in the store with
+no filtering — so the synthetic chunk was being treated as a linkable "note"
+and could be recommended as a link target that doesn't exist in the vault.
+Fixed by excluding `OVERVIEW_REL_PATH` (a shared constant, replacing the
+previously-duplicated `"(vault overview)"` string literal) in
+`note_vectors()`. This is the one cross-cutting interaction between Fix 2 and
+the rest of the indexing pipeline that per-file review didn't catch; a
+final holistic review across all touched files did.
+
 ## Testing
 
 - `tests/test_config.py` / a new `tests/test_memory.py` (or extend existing
