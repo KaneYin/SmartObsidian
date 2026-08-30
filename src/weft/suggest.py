@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from weft.graph import LinkGraph
+from weft.index import OVERVIEW_REL_PATH
 from weft.store import VectorStore
 
 # A small stopword set so shared "salient terms" aren't dominated by glue words.
@@ -45,9 +46,13 @@ def pair_id(a: str, b: str) -> str:
 
 def note_vectors(store: VectorStore) -> dict[str, np.ndarray]:
     """Mean-pool each note's chunk vectors into one L2-normalized note vector.
-    Notes with no chunks never appear (they aren't in the store)."""
+    Notes with no chunks never appear (they aren't in the store). The
+    synthetic vault-overview chunk isn't a real note, so it's excluded here
+    -- it must never become a link-suggestion candidate."""
     out: dict[str, np.ndarray] = {}
     for rel_path, chunk_vecs in store.vectors_by_note().items():
+        if rel_path == OVERVIEW_REL_PATH:
+            continue
         mean = chunk_vecs.mean(axis=0)
         norm = np.linalg.norm(mean)
         if norm > 0:

@@ -1,6 +1,7 @@
 import numpy as np
 
 from weft.graph import LinkGraph
+from weft.index import OVERVIEW_REL_PATH, build_index, graph_path_for
 from weft.parser import Note
 from weft.store import VectorStore
 from weft.suggest import (
@@ -9,6 +10,21 @@ from weft.suggest import (
     note_vectors,
     pair_id,
 )
+
+
+class _ConstantEmbedder:
+    """Every chunk -- real or synthetic -- gets the same unit vector, so every
+    note pair (including the synthetic overview chunk) is cosine 1.0. This
+    forces the vault-overview leak to manifest deterministically if it isn't
+    filtered, unlike FakeEmbedder's hash-based vectors which only correlate
+    by chance."""
+
+    def __init__(self, dim: int = 4):
+        self.dim = dim
+
+    def embed(self, texts):
+        vec = np.ones(self.dim, dtype=np.float32) / np.sqrt(self.dim)
+        return np.tile(vec, (len(texts), 1))
 
 
 def _note(rel_path, wikilinks=None):
@@ -155,3 +171,35 @@ def test_note_vectors_skips_notes_with_no_chunks():
     store = _store_with({"a.md": [[1.0, 0.0]]})
     vecs = note_vectors(store)
     assert "ghost.md" not in vecs
+
+
+def test_note_vectors_excludes_synthetic_vault_overview_chunk():
+    store = _store_with(
+        {"a.md": [[1.0, 0.0]], "b.md": [[0.0, 1.0]], OVERVIEW_REL_PATH: [[1.0, 1.0]]}
+    )
+    vecs = note_vectors(store)
+    assert set(vecs) == {"a.md", "b.md"}
+    assert OVERVIEW_REL_PATH not in vecs
+
+
+def test_infer_links_end_to_end_never_suggests_vault_overview(tmp_path):
+    """Real pipeline: build_index() adds the synthetic overview chunk
+    automatically. With every chunk forced to the same vector, the overview
+    chunk is cosine 1.0 with every real note -- if it weren't filtered out
+    of note_vectors(), it would appear in every suggestion."""
+    (tmp_path / "alpha.md").write_text("# Alpha\n\nbody text\n")
+    (tmp_path / "beta.md").write_text("# Beta\n\nbody text\n")
+    store_path = tmp_path / "idx"
+    build_index(tmp_path, _ConstantEmbedder(), store_path)
+
+    store = VectorStore.load(store_path)
+    rel_paths = {m["rel_path"] for m in store._metadata}
+    assert OVERVIEW_REL_PATH in rel_paths  # sanity: overview was indexed
+
+    graph = LinkGraph.load(graph_path_for(store_path))
+
+    out = infer_links(store, graph, threshold=0.8, limit=10, seen_pairs=set())
+
+    assert out  # the real alpha<->beta suggestion still fires
+    for suggestion in out:
+        assert OVERVIEW_REL_PATH not in (suggestion.note_a, suggestion.note_b)

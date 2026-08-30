@@ -44,6 +44,9 @@ def read_vault_root(store_path: Path) -> str:
     return manifest.get("vault_root") or ""
 
 
+OVERVIEW_REL_PATH = "(vault overview)"
+
+
 def build_overview_chunk(notes: list[Note]) -> Chunk | None:
     """A synthetic chunk summarizing vault composition -- folder and tag
     breakdown -- so a broad question like 'what is this vault about' has a
@@ -69,7 +72,7 @@ def build_overview_chunk(notes: list[Note]) -> Chunk | None:
         tags = ", ".join(f"#{tag} ({n})" for tag, n in tag_counts.most_common(15))
         lines.append(f"Most common tags: {tags}.")
     return Chunk(
-        rel_path="(vault overview)",
+        rel_path=OVERVIEW_REL_PATH,
         heading="Vault overview",
         text="\n".join(lines),
         ordinal=-1,
@@ -101,7 +104,7 @@ def build_index(
     overview_chunk = build_overview_chunk(notes)
     if overview_chunk is not None:
         overview_note = Note(
-            rel_path="(vault overview)", title="Vault overview",
+            rel_path=OVERVIEW_REL_PATH, title="Vault overview",
             frontmatter={}, tags=[], wikilinks=[], body="",
         )
         pairs.append((overview_note, overview_chunk))
