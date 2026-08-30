@@ -119,3 +119,25 @@ def test_service_chat_session_uses_same_mode_resolver(tmp_path, monkeypatch):
     assert session._k == 5
     assert session._bm25 is None
     assert session._memory_query is False
+
+
+def test_make_memory_stamps_episodes_with_manifest_vault_root(tmp_path):
+    import weft.service as S
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "n.md").write_text("# N\n\nhello\n")
+    store = tmp_path / ".weft" / "index"
+    S.service_index(vault, store, embedder=FakeEmbedder(dim=16))
+
+    mem = S.make_memory(store)
+    mem.log_episode("q", "a", ["n.md"])
+    assert mem.episodes()[0].vault_root == str(vault.resolve())
+
+
+def test_make_memory_defaults_to_empty_vault_root_before_indexing(tmp_path):
+    import weft.service as S
+    store = tmp_path / ".weft" / "index"
+    store.parent.mkdir(parents=True)
+    mem = S.make_memory(store)
+    mem.log_episode("q", "a", [])
+    assert mem.episodes()[0].vault_root == ""

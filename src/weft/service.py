@@ -21,7 +21,7 @@ from weft.config import (
 from weft.embeddings import Embedder, SentenceTransformerEmbedder
 from weft.graph import LinkGraph
 from weft.hardware import detect_gpu
-from weft.index import build_index, graph_path_for, manifest_path_for
+from weft.index import build_index, graph_path_for, manifest_path_for, read_vault_root
 from weft.inbox import render_inbox, validate_inbox_target, write_inbox
 from weft.ledger import load_seen, record
 from weft.llm import AuditedLLM, LLMClient
@@ -63,7 +63,8 @@ def make_llm(overrides: dict, store_path: Path, on_fallback=None) -> LLMClient:
 
 def make_memory(store_path: Path) -> MemoryStore:
     return MemoryStore(store_path.parent / "memory.jsonl",
-                       store_path.parent / "episodes.jsonl")
+                       store_path.parent / "episodes.jsonl",
+                       vault_root=read_vault_root(store_path))
 
 
 def make_proposals(store_path: Path) -> ProposalStore:

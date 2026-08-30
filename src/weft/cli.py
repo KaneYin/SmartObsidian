@@ -19,6 +19,7 @@ from weft.config import (
 )
 from weft.embeddings import Embedder, SentenceTransformerEmbedder
 from weft.hardware import detect_gpu
+from weft.index import read_vault_root
 from weft.llm import AuditedLLM, LLMClient, LLMRequestError
 from weft.memory import SEMANTIC_TYPES, MemoryStore
 from weft.memory_infer import infer_candidates
@@ -68,6 +69,7 @@ def make_memory(store_path: Path) -> MemoryStore:
     return MemoryStore(
         store_path.parent / "memory.jsonl",
         store_path.parent / "episodes.jsonl",
+        vault_root=read_vault_root(store_path),
     )
 
 

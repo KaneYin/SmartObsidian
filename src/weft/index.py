@@ -33,6 +33,16 @@ def manifest_path_for(store_path: Path) -> Path:
     return Path(str(store_path) + ".manifest.json")
 
 
+def read_vault_root(store_path: Path) -> str:
+    """The vault_root recorded in this store's manifest, or "" if the store
+    has no manifest yet (fresh index, or a pre-manifest one)."""
+    path = manifest_path_for(store_path)
+    if not path.exists():
+        return ""
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    return manifest.get("vault_root") or ""
+
+
 def build_index(
     vault_path: Path,
     embedder: Embedder,
