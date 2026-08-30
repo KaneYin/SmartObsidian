@@ -182,12 +182,23 @@ def service_index(
     chunking: str = "heading",
     no_bm25: bool = False,
     contextual: bool = False,
+    force: bool = False,
     overrides: dict | None = None,
     embedder: Embedder | None = None,
     on_fallback=None,
 ) -> dict:
     """Build an index without coupling the workflow to a terminal interface."""
     sp = Path(store_path)
+    manifest_path = manifest_path_for(sp)
+    if manifest_path.exists() and not force:
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        existing_root = existing.get("vault_root")
+        requested_root = str(vault_root(Path(vault_path)))
+        if existing_root != requested_root:
+            raise IndexVaultMismatchError(
+                f"store at {sp} belongs to a different vault ({existing_root}); "
+                "pass --force to overwrite it"
+            )
     contextual_llm = None
     if contextual:
         raw = make_llm(overrides or {}, sp, on_fallback=on_fallback)

@@ -145,3 +145,24 @@ def test_cli_model_timeout_is_rendered_without_traceback(monkeypatch, capsys):
     monkeypatch.setattr("weft.service.service_ask", timeout)
     assert cli.main(["ask", "question"]) == 1
     assert "Model request error: model timed out" in capsys.readouterr().err
+
+
+def test_cli_index_refuses_different_vault_without_force(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr("weft.service.make_embedder", lambda: FakeEmbedder(dim=16))
+    vault_a = tmp_path / "vault_a"
+    vault_a.mkdir()
+    (vault_a / "a.md").write_text("# A\n\nhello\n")
+    vault_b = tmp_path / "vault_b"
+    vault_b.mkdir()
+    (vault_b / "b.md").write_text("# B\n\nhello\n")
+    store = tmp_path / "idx"
+
+    assert cli.main(["index", str(vault_a), "--store", str(store)]) == 0
+
+    rc = cli.main(["index", str(vault_b), "--store", str(store)])
+    assert rc == 1
+    assert "different vault" in capsys.readouterr().err
+
+    rc = cli.main(["index", str(vault_b), "--store", str(store), "--force"])
+    assert rc == 0

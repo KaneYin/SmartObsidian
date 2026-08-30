@@ -150,11 +150,12 @@ def _cmd_index(args: argparse.Namespace) -> int:
             chunking=args.chunking,
             no_bm25=args.no_bm25,
             contextual=args.contextual,
+            force=args.force,
             overrides=_llm_overrides(args),
             embedder=make_embedder(),
             on_fallback=_fallback_notice,
         )
-    except ProviderUnavailable as exc:
+    except (ProviderUnavailable, service.IndexVaultMismatchError) as exc:
         print(terminal_safe(exc), file=sys.stderr)
         return 1
     print(
@@ -521,6 +522,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_index.add_argument(
         "--no-bm25", action="store_true",
         help="Skip building the BM25 lexical index (disables hybrid search).",
+    )
+    p_index.add_argument(
+        "--force", action="store_true",
+        help="Overwrite an existing store even if it belongs to a different vault.",
     )
     p_index.set_defaults(func=_cmd_index)
 

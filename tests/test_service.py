@@ -141,3 +141,45 @@ def test_make_memory_defaults_to_empty_vault_root_before_indexing(tmp_path):
     mem = S.make_memory(store)
     mem.log_episode("q", "a", [])
     assert mem.episodes()[0].vault_root == ""
+
+
+def test_service_index_refuses_different_vault_without_force(tmp_path):
+    import pytest
+    from weft.service import IndexVaultMismatchError, service_index
+    vault_a = tmp_path / "vault_a"
+    vault_a.mkdir()
+    (vault_a / "a.md").write_text("# A\n\nhello\n")
+    vault_b = tmp_path / "vault_b"
+    vault_b.mkdir()
+    (vault_b / "b.md").write_text("# B\n\nhello\n")
+    store = tmp_path / ".weft" / "index"
+
+    service_index(vault_a, store, embedder=FakeEmbedder(dim=16))
+    with pytest.raises(IndexVaultMismatchError):
+        service_index(vault_b, store, embedder=FakeEmbedder(dim=16))
+
+
+def test_service_index_force_overwrites_different_vault(tmp_path):
+    from weft.service import service_index
+    vault_a = tmp_path / "vault_a"
+    vault_a.mkdir()
+    (vault_a / "a.md").write_text("# A\n\nhello\n")
+    vault_b = tmp_path / "vault_b"
+    vault_b.mkdir()
+    (vault_b / "b.md").write_text("# B\n\nhello\n")
+    store = tmp_path / ".weft" / "index"
+
+    service_index(vault_a, store, embedder=FakeEmbedder(dim=16))
+    result = service_index(vault_b, store, embedder=FakeEmbedder(dim=16), force=True)
+    assert result["vault"] == str(vault_b)
+
+
+def test_service_index_same_vault_reindex_needs_no_force(tmp_path):
+    from weft.service import service_index
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "a.md").write_text("# A\n\nhello\n")
+    store = tmp_path / ".weft" / "index"
+    service_index(vault, store, embedder=FakeEmbedder(dim=16))
+    result = service_index(vault, store, embedder=FakeEmbedder(dim=16))
+    assert result["chunks"] >= 1
