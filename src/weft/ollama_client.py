@@ -8,6 +8,10 @@ from collections.abc import Callable
 
 import httpx
 
+from weft.llm import LLMRequestError
+
+DEFAULT_GENERATION_TIMEOUT = 120
+
 
 class OllamaClient:
     """Chat completion via Ollama. Metadata attrs feed the audit log."""
@@ -20,14 +24,14 @@ class OllamaClient:
         self.endpoint = endpoint.rstrip("/")
         self.model = model
         self._params = params or {}
-        self._http = client or httpx.Client(timeout=120)
+        self._http = client or httpx.Client(timeout=DEFAULT_GENERATION_TIMEOUT)
 
     def complete(self, system: str, prompt: str) -> str:
         options = dict(self._params)
         think = options.pop("think", None)
         body = {
             "model": self.model,
-            "stream": False,
+            "stream": True,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
@@ -37,12 +41,38 @@ class OllamaClient:
         # Ollama treats thinking as a top-level chat control, not a model option.
         if "think" in self._params:
             body["think"] = think
-        resp = self._http.post(
-            f"{self.endpoint}/api/chat",
-            json=body,
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"]
+        try:
+            content: list[str] = []
+            with self._http.stream(
+                "POST", f"{self.endpoint}/api/chat", json=body
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    payload = json.loads(line)
+                    if payload.get("error"):
+                        raise LLMRequestError(
+                            f"Ollama request for model {self.model!r} failed: "
+                            f"{payload['error']}"
+                        )
+                    content.append(payload.get("message", {}).get("content", ""))
+        except httpx.TimeoutException as exc:
+            raise LLMRequestError(
+                f"Ollama model {self.model!r} produced no response data for "
+                f"{DEFAULT_GENERATION_TIMEOUT} seconds. For a thinking-capable "
+                "model, set `think = false` under `[params]` in "
+                "`.weft/config.toml`, or select a smaller model."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise LLMRequestError(
+                f"Ollama request for model {self.model!r} failed: {exc}"
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise LLMRequestError(
+                f"Ollama returned an invalid streamed response for model {self.model!r}"
+            ) from exc
+        return "".join(content)
 
 
 def ping(endpoint: str, client: httpx.Client | None = None) -> bool:

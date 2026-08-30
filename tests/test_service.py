@@ -28,7 +28,8 @@ def test_service_config_has_no_secrets(tmp_path):
     save_config(config_path_for(store), ResolvedConfig(provider="anthropic", model="claude-opus-4-8"))
     cfg = service_config(store)
     assert cfg == {"provider": "anthropic", "model": "claude-opus-4-8",
-                   "endpoint": "http://localhost:11434", "fallback": []}
+                   "mode": "balanced", "endpoint": "http://localhost:11434",
+                   "fallback": []}
 
 
 def test_service_models_shape(tmp_path):
@@ -104,3 +105,17 @@ def test_service_ask_memory_query_runs(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "make_memory", lambda sp: mem)
     data = S.service_ask(store, "world", k=3, use_memory_query=True)
     assert data["answer"] == "answer [1]"
+
+
+def test_service_chat_session_uses_same_mode_resolver(tmp_path, monkeypatch):
+    import weft.service as S
+    from weft.llm import FakeLLM
+    store = tmp_path / ".weft" / "index"
+    save_config(config_path_for(store), ResolvedConfig(provider="fake"))
+    _index(store)
+    monkeypatch.setattr(S, "make_embedder", lambda: FakeEmbedder(dim=16))
+    monkeypatch.setattr(S, "make_llm", lambda *a, **k: FakeLLM(response="answer"))
+    session = S.service_chat_session(store, mode="fast")
+    assert session._k == 5
+    assert session._bm25 is None
+    assert session._memory_query is False

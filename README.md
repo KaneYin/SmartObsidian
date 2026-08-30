@@ -1,9 +1,9 @@
 # Weft
 
-Weft is a local-first assistant over an Obsidian Markdown vault. It parses and
-chunks notes locally, creates sentence-transformer embeddings, combines vector
-retrieval with the explicit `[[wikilink]]` graph, and asks Claude to answer with
-source citations. It can also propose missing links in a review-only inbox.
+Weft is a local-first assistant over an Obsidian Markdown vault. Index a vault,
+then ask questions from the CLI or use a small interactive terminal menu. Weft
+keeps advanced retrieval controls available without requiring normal users to
+understand them.
 
 Implemented milestones:
 
@@ -19,9 +19,12 @@ Implemented milestones:
   model (Ollama) fully offline, or on a remote API, chosen by GPU capability.
 - CRAG Task 1 benchmark adapter: ephemeral retrieval over CRAG's cached web pages
   with local Ollama generation and no remote fallback.
+- intent-based `fast`, `balanced`, and `best` retrieval modes shared by CLI,
+  TUI, and REST adapters;
+- a dependency-free interactive terminal menu for ask, chat, index, suggestions,
+  and settings.
 
-A `chat` REPL (M4), an OpenAI-compatible provider and opt-in fallback (M5.1), the
-background daemon, automatic note edits, and scheduling remain future work.
+The background daemon, automatic note edits, and scheduling remain future work.
 
 ## Setup
 
@@ -46,6 +49,32 @@ uv run weft models pull                  # pulls the recommended model (confirms
 
 Selection precedence is CLI flags > `WEFT_*` env vars > `.weft/config.toml` >
 GPU default. API keys are read from the environment and never written to config.
+
+## Quick start
+
+```bash
+uv run weft index "/path/to/your/Vault"
+uv run weft
+```
+
+Bare `weft` opens the interactive menu:
+
+```text
+Ask vault
+Chat
+Index vault
+Discover links
+Settings
+Exit
+```
+
+For automation, the primary commands remain:
+
+```bash
+uv run weft ask "What architectural decisions did I make?"
+uv run weft chat
+uv run weft suggest "/path/to/your/Vault"
+```
 
 If the key is stored in `.env`, protect it before sourcing it:
 
@@ -88,13 +117,29 @@ Vault path are stored in the private `index.manifest.json` sidecar.
 
 ```bash
 uv run weft ask "What did I decide about X?"
-uv run weft ask "What are my priorities?" --k 8
-uv run weft ask "What are my priorities?" --no-graph
+uv run weft ask "What are my priorities?" --mode fast
+uv run weft ask "What are my priorities?" --mode best
 ```
 
-`--k` accepts 1 through 50. Only retrieved, already-filtered chunks are sent to
-Claude. The exact outbound system prompt and payload are appended to
+`balanced` is the initial default. `fast` uses a smaller vector-first pipeline,
+`balanced` adds hybrid and memory-query retrieval, and `best` adds cross-encoder
+reranking. The configured default can be changed with:
+
+```bash
+uv run weft config set mode best
+```
+
+Advanced options still override a mode when needed:
+
+```bash
+uv run weft ask "What are my priorities?" --mode best --k 12 --no-rerank
+```
+
+Only retrieved, already-filtered chunks are sent to the selected provider. The
+exact outbound system prompt and payload are appended to
 `.weft/api-log.jsonl` with mode `0600`; treat that audit log as sensitive.
+See the [advanced CLI reference](docs/how-to/cli-command-reference.md) for
+retrieval tuning, benchmarking, memory administration, and server commands.
 
 ## Suggest links
 

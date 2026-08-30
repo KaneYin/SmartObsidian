@@ -28,3 +28,11 @@ def test_config_set_fallback_list(tmp_path):
 def test_config_set_fallback_rejects_unknown(tmp_path):
     store = tmp_path / ".weft" / "index"
     assert main(["config", "set", "fallback", "anthropic,bogus", "--store", str(store)]) == 2
+
+
+def test_config_set_mode(tmp_path, capsys):
+    store = tmp_path / ".weft" / "index"
+    assert main(["config", "set", "mode", "best", "--store", str(store)]) == 0
+    data = tomllib.loads((tmp_path / ".weft" / "config.toml").read_text())
+    assert data["mode"] == "best"
+    assert main(["config", "set", "mode", "turbo", "--store", str(store)]) == 2

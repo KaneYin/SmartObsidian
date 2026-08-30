@@ -18,6 +18,10 @@ class LLMClient(Protocol):
         ...
 
 
+class LLMRequestError(RuntimeError):
+    """A configured model was available but its generation request failed."""
+
+
 class FakeLLM:
     """Records the last call; returns a canned response, or echoes the prompt
     if none was given (handy for asserting the prompt was built correctly)."""

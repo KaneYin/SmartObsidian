@@ -1,8 +1,10 @@
 import json
 
 import httpx
+import pytest
 
 from weft.ollama_client import OllamaClient, list_models, ping
+from weft.llm import LLMRequestError
 
 
 def _client(handler):
@@ -21,7 +23,7 @@ def test_complete_sends_chat_and_returns_content():
     out = oc.complete(system="S", prompt="P")
     assert out == "hello from llama"
     assert seen["url"].endswith("/api/chat")
-    assert seen["json"]["stream"] is False
+    assert seen["json"]["stream"] is True
     assert seen["json"]["messages"][0]["role"] == "system"
     assert oc.provider == "ollama" and oc.left_machine is False and oc.model == "llama3.1:8b"
 
@@ -42,6 +44,36 @@ def test_complete_sends_think_as_top_level_chat_control():
     assert oc.complete(system="S", prompt="P") == "Paris"
     assert seen["think"] is False
     assert "think" not in seen["options"]
+
+
+def test_complete_assembles_streamed_content():
+    def handler(request):
+        return httpx.Response(
+            200,
+            content=(
+                b'{"message":{"content":"hello "},"done":false}\n'
+                b'{"message":{"content":"world"},"done":true}\n'
+            ),
+            headers={"Content-Type": "application/x-ndjson"},
+        )
+
+    client = OllamaClient(
+        "http://localhost:11434", "qwen3.5:9b", client=_client(handler)
+    )
+    assert client.complete(system="S", prompt="P") == "hello world"
+
+
+def test_complete_translates_timeout_into_actionable_model_error():
+    def handler(request):
+        raise httpx.ReadTimeout("slow model", request=request)
+
+    client = OllamaClient(
+        "http://localhost:11434",
+        "qwen3.5:9b",
+        client=_client(handler),
+    )
+    with pytest.raises(LLMRequestError, match="think = false"):
+        client.complete(system="S", prompt="P")
 
 
 def test_list_models_parses_tags():

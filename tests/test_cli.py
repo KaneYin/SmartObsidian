@@ -112,3 +112,36 @@ def test_cli_ask_and_chat_memory_query(sample_vault, tmp_path, monkeypatch):
     monkeypatch.setattr("weft.service.make_llm", lambda *a, **k: FakeLLM(response="A [1]"))
     rc2 = cli.main(["chat", "--store", str(idx), "--memory-query"])
     assert rc2 == 0
+
+
+def test_cli_mode_and_explicit_options_reach_service(monkeypatch, capsys):
+    seen = {}
+
+    def fake_ask(store, question, **kwargs):
+        seen.update(question=question, **kwargs)
+        return {"answer": "ok", "sources": [], "retrieval": {}}
+
+    monkeypatch.setattr("weft.service.service_ask", fake_ask)
+    rc = cli.main([
+        "ask", "question", "--mode", "best", "--k", "12",
+        "--no-hybrid", "--no-rerank", "--no-memory-query",
+    ])
+    assert rc == 0
+    assert seen["mode"] == "best"
+    overrides = seen["retrieval_overrides"]
+    assert overrides.k == 12
+    assert overrides.hybrid is False
+    assert overrides.rerank is False
+    assert overrides.memory_query is False
+    assert "ok" in capsys.readouterr().out
+
+
+def test_cli_model_timeout_is_rendered_without_traceback(monkeypatch, capsys):
+    from weft.llm import LLMRequestError
+
+    def timeout(*args, **kwargs):
+        raise LLMRequestError("model timed out")
+
+    monkeypatch.setattr("weft.service.service_ask", timeout)
+    assert cli.main(["ask", "question"]) == 1
+    assert "Model request error: model timed out" in capsys.readouterr().err

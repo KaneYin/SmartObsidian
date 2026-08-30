@@ -12,6 +12,7 @@ from pathlib import Path
 from weft.security import secure_write_text
 
 VALID_PROVIDERS = {"ollama", "anthropic", "openai", "fake"}
+VALID_MODES = {"fast", "balanced", "best"}
 DEFAULT_ENDPOINT = "http://localhost:11434"
 
 
@@ -19,6 +20,7 @@ DEFAULT_ENDPOINT = "http://localhost:11434"
 class ResolvedConfig:
     provider: str = "ollama"
     model: str = "auto"
+    mode: str = "balanced"
     endpoint: str = DEFAULT_ENDPOINT
     params: dict = field(default_factory=lambda: {"temperature": 0.2, "num_ctx": 8192})
     fallback: list[str] = field(default_factory=list)
@@ -38,6 +40,7 @@ def load_config(path: Path) -> ResolvedConfig:
     return ResolvedConfig(
         provider=str(data.get("provider", default.provider)),
         model=str(data.get("model", default.model)),
+        mode=str(data.get("mode", default.mode)),
         endpoint=str(data.get("endpoint", default.endpoint)),
         params=dict(data.get("params", default.params)),
         fallback=list(data.get("fallback", [])),
@@ -51,6 +54,8 @@ def env_overrides(env: dict) -> dict:
         out["provider"] = env["WEFT_PROVIDER"]
     if env.get("WEFT_MODEL"):
         out["model"] = env["WEFT_MODEL"]
+    if env.get("WEFT_MODE"):
+        out["mode"] = env["WEFT_MODE"]
     if env.get("WEFT_ENDPOINT"):
         out["endpoint"] = env["WEFT_ENDPOINT"]
     return out
@@ -58,7 +63,7 @@ def env_overrides(env: dict) -> dict:
 
 def merge(cfg: ResolvedConfig, *overrides: dict) -> ResolvedConfig:
     """Apply override dicts in order (later wins), skipping falsy values."""
-    provider, model, endpoint = cfg.provider, cfg.model, cfg.endpoint
+    provider, model, mode, endpoint = cfg.provider, cfg.model, cfg.mode, cfg.endpoint
     params = dict(cfg.params)
     fallback = list(cfg.fallback)
     for layer in overrides:
@@ -66,13 +71,15 @@ def merge(cfg: ResolvedConfig, *overrides: dict) -> ResolvedConfig:
             provider = layer["provider"]
         if layer.get("model"):
             model = layer["model"]
+        if layer.get("mode"):
+            mode = layer["mode"]
         if layer.get("endpoint"):
             endpoint = layer["endpoint"]
         if layer.get("params"):
             params.update(layer["params"])
         if layer.get("fallback"):
             fallback = list(layer["fallback"])
-    return ResolvedConfig(provider=provider, model=model, endpoint=endpoint,
+    return ResolvedConfig(provider=provider, model=model, mode=mode, endpoint=endpoint,
                           params=params, fallback=fallback)
 
 
@@ -81,13 +88,17 @@ def _to_toml(cfg: ResolvedConfig) -> str:
     lines = [
         f'provider = "{cfg.provider}"',
         f'model = "{cfg.model}"',
+        f'mode = "{cfg.mode}"',
         f'endpoint = "{cfg.endpoint}"',
         f"fallback = [{fallback_rendered}]",
         "",
         "[params]",
     ]
     for key, value in cfg.params.items():
-        rendered = value if isinstance(value, (int, float)) else f'"{value}"'
+        if isinstance(value, bool):
+            rendered = str(value).lower()
+        else:
+            rendered = value if isinstance(value, (int, float)) else f'"{value}"'
         lines.append(f"{key} = {rendered}")
     return "\n".join(lines) + "\n"
 

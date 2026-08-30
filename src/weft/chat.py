@@ -37,7 +37,8 @@ class ChatTurn:
 class ChatSession:
     def __init__(self, embedder, store, llm, *, graph=None, memory=None,
                  k: int = 5, window: int = 6, rewrite_llm: bool = False, bm25=None,
-                 reranker=None, memory_query: bool = False):
+                 reranker=None, rerank_pool: int = RERANK_POOL,
+                 memory_query: bool = False):
         self._embedder = embedder
         self._store = store
         self._llm = llm
@@ -48,6 +49,7 @@ class ChatSession:
         self._rewrite_llm = rewrite_llm
         self._bm25 = bm25
         self._reranker = reranker
+        self._rerank_pool = rerank_pool
         self._memory_query = memory_query
         self.history: list[dict] = []
         self.last_sources: list[str] = []
@@ -68,7 +70,7 @@ class ChatSession:
         mq = build_memory_query(self._memory) if self._memory_query else None
         if self._reranker is not None:
             pool = dual_query_retrieve(question, ctx, self._embedder, self._store,
-                                       graph=self._graph, k=RERANK_POOL,
+                                       graph=self._graph, k=self._rerank_pool,
                                        bm25=self._bm25, memory_query=mq)
             rerank_query = f"{ctx}\n{question}" if ctx else question
             return self._reranker.rerank(rerank_query, pool, self._k)

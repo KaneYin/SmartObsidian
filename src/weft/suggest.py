@@ -4,7 +4,7 @@ math over the stored chunk vectors, fused with M1's explicit link graph.
 
 Everything here is deterministic and offline: candidate generation is an N×N
 cosine over mean-pooled note vectors, and the default rationale is a local
-template. The `--rationale` Claude pass lives in the CLI, not here."""
+template. The optional rationale pass is orchestrated by the application service."""
 
 from __future__ import annotations
 

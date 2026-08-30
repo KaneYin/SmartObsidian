@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from weft import service
+from weft.llm import LLMRequestError
 from weft.providers import ProviderUnavailable
 from weft.security import UnsafeWriteError, secure_write_text
 
@@ -63,7 +64,12 @@ def _r_models(sp, body):
 
 
 def _r_ask(sp, body):
-    return service.service_ask(sp, body.get("question", ""), k=body.get("k", 5))
+    return service.service_ask(
+        sp,
+        body.get("question", ""),
+        mode=body.get("mode"),
+        k=body.get("k"),
+    )
 
 
 def _r_remember(sp, body):
@@ -155,7 +161,7 @@ class WeftHandler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(exc)})
         except KeyError as exc:
             self._send(404, {"error": f"not found: {exc}"})
-        except ProviderUnavailable as exc:
+        except (ProviderUnavailable, LLMRequestError) as exc:
             self._send(503, {"error": str(exc)})
         except Exception:
             self._send(500, {"error": "internal error"})
