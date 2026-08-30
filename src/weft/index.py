@@ -44,6 +44,8 @@ def read_vault_root(store_path: Path) -> str:
     return manifest.get("vault_root") or ""
 
 
+# Real rel_paths always end in ".md" (see parse_vault below), so this
+# sentinel can never collide with an actual vault note.
 OVERVIEW_REL_PATH = "(vault overview)"
 
 
